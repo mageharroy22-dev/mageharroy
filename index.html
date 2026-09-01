@@ -1079,10 +1079,10 @@
   // Se o arquivo não estiver lá, o jogo usa o modelo interno de sempre.
   // ===============================================================
   const MODELOS = {
-    goblin: { arquivo:'models/goblin.glb', altura:1.85, giro:0, giroX:0,          pronto:null },
-    golem:  { arquivo:'models/golem.glb',  altura:5.60, giro:0, giroX:0,          pronto:null },
+    goblin: { arquivo:'models/goblin.glb', altura:1.85, giro:0, giroX:0,          brilho:2.30, pronto:null },
+    golem:  { arquivo:'models/golem.glb',  altura:5.60, giro:0, giroX:0,          brilho:2.90, pronto:null },
     // O pinheiro foi exportado deitado (Z para cima): -90° em X o coloca de pé
-    arvore: { arquivo:'models/arvore.glb', altura:7.20, giro:0, giroX:-Math.PI/2, pronto:null },
+    arvore: { arquivo:'models/arvore.glb', altura:7.20, giro:0, giroX:-Math.PI/2, brilho:1.35, pronto:null },
   };
 
   // Encaixa o modelo no jogo: apoia no chão, centraliza e ajusta a altura
@@ -1109,6 +1109,42 @@
     return raiz;
   }
 
+  // Os .glb vêm com cores pensadas para estúdio: debaixo da luz de noite do
+  // jogo eles ficam quase pretos. Aqui a cor de cada material é puxada para
+  // cima e ganha um brilho próprio, para o bicho se destacar do cenário.
+  function clarearModelo(raiz, brilho){
+    if(!brilho || brilho === 1) return;
+    const feitos = new Map();
+    const trocar = (m)=>{
+      if(!m) return m;
+      if(feitos.has(m)) return feitos.get(m);
+      const c = m.clone();
+      if(c.map && c.emissive){
+        // Quem manda na cor é a textura. Tingir por cima só a lavaria, então
+        // o que se faz é acender a própria textura.
+        c.emissiveMap = c.map;
+        const g = Math.min(0.62, 0.17*brilho);
+        c.emissive.setRGB(g, g, g);
+        c.emissiveIntensity = 1;
+      } else if(c.color){
+        // Sem textura: clareia o tom sem lhe tirar a cor.
+        const hsl = {h:0,s:0,l:0};
+        c.color.getHSL(hsl);
+        c.color.setHSL(hsl.h, Math.min(1, hsl.s*1.08), Math.min(0.92, hsl.l*brilho));
+        if(c.emissive){ c.emissive.copy(c.color).multiplyScalar(0.16); c.emissiveIntensity = 1; }
+      }
+      if(c.roughness !== undefined) c.roughness = Math.min(1, c.roughness*0.85 + 0.1);
+      if(c.metalness !== undefined) c.metalness = Math.min(c.metalness, 0.12);
+      c.needsUpdate = true;
+      feitos.set(m, c);
+      return c;
+    };
+    raiz.traverse(n=>{
+      if(!n.isMesh || !n.material) return;
+      n.material = Array.isArray(n.material) ? n.material.map(trocar) : trocar(n.material);
+    });
+  }
+
   function carregarModelos(aoTerminar){
     if(typeof THREE.GLTFLoader === 'undefined'){ aoTerminar(false); return; }
     // Aberto por duplo clique (file://) o navegador proíbe ler a pasta models/.
@@ -1128,7 +1164,7 @@
       const cfg = MODELOS[k];
       try{
         loader.load(cfg.arquivo,
-          (gltf)=>{ cfg.pronto = gltf.scene; algum = true; fim(); },
+          (gltf)=>{ cfg.pronto = gltf.scene; clarearModelo(cfg.pronto, cfg.brilho); algum = true; fim(); },
           undefined,
           ()=>{ cfg.pronto = null; fim(); }
         );
@@ -1419,25 +1455,26 @@
       // Geometria própria por lote: assim dá para dar a cada um a sua esfera
       // de recorte, e o lote inteiro some quando está fora da tela.
       const geo = b.geo.clone();
-      if(!b.geo.boundingSphere) b.geo.computeBoundingSphere();
-      const raioGeo = b.geo.boundingSphere ? b.geo.boundingSphere.radius : 1;
+      if(!b.geo.boundingBox) b.geo.computeBoundingBox();
+      const caixaGeo = b.geo.boundingBox
+        ? b.geo.boundingBox.clone()
+        : new THREE.Box3(new THREE.Vector3(-1,-1,-1), new THREE.Vector3(1,1,1));
 
       const im = new THREE.InstancedMesh(geo, b.mat, b.list.length);
-      const centro = new THREE.Vector3();
-      const pos = new THREE.Vector3(), esc = new THREE.Vector3(), q = new THREE.Quaternion();
+      // A caixa de cada pedaço é levada para o mundo por sua própria matriz.
+      // (Medir só pela posição dá esfera curta: partes altas da árvore somem
+      // antes da hora e sobram cones soltos no ar.)
+      const total = new THREE.Box3();
+      const tmp = new THREE.Box3();
       b.list.forEach((m,i)=>{
         im.setMatrixAt(i, m);
-        m.decompose(pos, q, esc);
-        centro.add(pos);
+        tmp.copy(caixaGeo).applyMatrix4(m);
+        total.union(tmp);
       });
-      centro.divideScalar(b.list.length);
-      let raio = 0;
-      b.list.forEach(m=>{
-        m.decompose(pos, q, esc);
-        const maiorEscala = Math.max(esc.x, esc.y, esc.z);
-        raio = Math.max(raio, pos.distanceTo(centro) + raioGeo*maiorEscala);
-      });
-      geo.boundingSphere = new THREE.Sphere(centro.clone(), raio * 1.05);
+      const centro = total.getCenter(new THREE.Vector3());
+      const raio = total.getSize(new THREE.Vector3()).length()*0.5;
+      geo.boundingBox = total.clone();
+      geo.boundingSphere = new THREE.Sphere(centro, raio * 1.08 + 0.5);
       im.instanceMatrix.needsUpdate = true;
       im.frustumCulled = true;
       scene.add(im);
@@ -4879,6 +4916,36 @@ function animarAldric(modelo, t, dt){
     e.fg.material.color.setHex(frac>0.5 ? 0x5fd66a : (frac>0.2 ? 0xe0c34a : 0xd6503f));
   }
 
+  // ---- Caminhada ----------------------------------------------------------
+  // Os .glb não vieram com esqueleto, então o passo é fingido: o corpo pende
+  // de um lado para o outro, inclina para a frente e afunda um pouco a cada
+  // apoio. Nada de pular.
+  function animarPassos(e, dt, forca){
+    const T = e.T;
+    const alt = (MODELOS[e.typeId] && MODELOS[e.typeId].altura) || 1.8;
+    const cad = Math.max(1.4, (T.speed || 3) * 3.0 / Math.sqrt(alt));
+    e.passo = (e.passo || 0) + dt * cad * (0.4 + 0.6*forca);
+    const bal = Math.sin(e.passo);
+    const corpo = e.group.userData.externo;
+    if(corpo){
+      corpo.rotation.z = bal * 0.10 * forca;
+      corpo.rotation.x = 0.07 * forca + (1 - Math.abs(bal)) * 0.035 * forca;
+      corpo.position.y = -Math.abs(bal) * 0.045 * forca * (alt/1.85);
+    }
+    e.group.position.y = Math.abs(bal) * (corpo ? 0.03 : 0.06) * forca * (alt/1.85);
+  }
+  // Parado: volta devagar para a posição neutra, com uma respirada de leve.
+  function pararPassos(e, dt){
+    const corpo = e.group.userData.externo;
+    const k = Math.min(1, dt*6);
+    if(corpo){
+      corpo.rotation.z += (0 - corpo.rotation.z) * k;
+      corpo.rotation.x += (0 - corpo.rotation.x) * k;
+      corpo.position.y += (0 - corpo.position.y) * k;
+    }
+    e.group.position.y += (0 - e.group.position.y) * k;
+  }
+
   function flashEnemy(e){
     if(e.bodyMat){
       const orig = e.bodyMat.color.getHex();
@@ -5427,10 +5494,13 @@ function animarAldric(modelo, t, dt){
           const tz = e.group.position.z + nz*step;
           if(T.ghost || !blockedAt(tx, e.group.position.z, 0.5)) e.group.position.x = tx;
           if(T.ghost || !blockedAt(e.group.position.x, tz, 0.5)) e.group.position.z = tz;
-          e.bob += dt*10;
-          e.group.position.y = T.ghost ? 0.5 + Math.sin(e.bob*0.5)*0.28 : Math.abs(Math.sin(e.bob))*0.10;
+          if(T.ghost){
+            e.bob += dt*10;
+            e.group.position.y = 0.5 + Math.sin(e.bob*0.5)*0.28;
+          } else animarPassos(e, dt, 1);
         } else {
-          e.group.position.y = T.ghost ? 0.5 + Math.sin(e.bob+=dt*3)*0.2 : 0;
+          if(T.ghost) e.group.position.y = 0.5 + Math.sin(e.bob+=dt*3)*0.2;
+          else pararPassos(e, dt);
         }
         // Ataque corpo a corpo
         e.meleeCd -= dt;
@@ -5463,10 +5533,13 @@ function animarAldric(modelo, t, dt){
           if(T.ghost || !blockedAt(tx, e.group.position.z, 0.5)) e.group.position.x = tx;
           if(T.ghost || !blockedAt(e.group.position.x, tz, 0.5)) e.group.position.z = tz;
           e.group.rotation.y = Math.atan2(wx, wz);
-          e.bob += dt*6;
-          e.group.position.y = T.ghost ? 0.5 + Math.sin(e.bob*0.5)*0.25 : Math.abs(Math.sin(e.bob))*0.06;
+          if(T.ghost){
+            e.bob += dt*6;
+            e.group.position.y = 0.5 + Math.sin(e.bob*0.5)*0.25;
+          } else animarPassos(e, dt, 0.55);
         } else {
-          e.group.position.y = T.ghost ? 0.5 : 0;
+          if(T.ghost) e.group.position.y = 0.5;
+          else pararPassos(e, dt);
         }
       }
     }
