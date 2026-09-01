@@ -1149,7 +1149,9 @@
     if(typeof THREE.GLTFLoader === 'undefined'){ aoTerminar(false); return; }
     // Aberto por duplo clique (file://) o navegador proíbe ler a pasta models/.
     // Nesse caso nem tenta: segue com os modelos internos, sem erro na tela.
-    if(location.protocol === 'file:'){
+    // O atalho do aplicativo abre com ?local=1 e a permissão de ler a pasta,
+    // então ali vale a pena tentar mesmo sendo file://.
+    if(location.protocol === 'file:' && !/[?&]local=1/.test(location.search)){
       console.info('[Mage Harroy] aberto direto do arquivo — usando os modelos internos. ' +
                    'Para ver os .glb da pasta models/, rode um servidor local (veja o README).');
       aoTerminar(false);
@@ -3230,8 +3232,18 @@ function animarAldric(modelo, t, dt){
     ui.scene.classList.toggle('locked', pointerLocked);
   }
 
+  // No aplicativo (atalho da area de trabalho) a janela vai a tela cheia
+  // no primeiro clique, como num jogo instalado. Esc devolve a janela.
+  const modoApp = /[?&]local=1/.test(location.search);
+  function telaCheia(){
+    if(!modoApp || document.fullscreenElement) return;
+    const e = document.documentElement;
+    const f = e.requestFullscreen || e.webkitRequestFullscreen;
+    if(f){ try{ const r = f.call(e); if(r && r.catch) r.catch(()=>{}); }catch(_){} }
+  }
   function requestPointerLock(){
     if(craftOpen || dialogueOpen || shopOpen || runeOpen || fusaoOpen || !started || pointerLocked || dead || cutsceneAtiva()) return;
+    telaCheia();
     const p = ui.scene.requestPointerLock();
     if(p && p.catch){ p.catch(()=>{ toast('Mouse não travou aqui — clique na cena para tentar de novo'); }); }
   }
