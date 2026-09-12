@@ -1185,6 +1185,8 @@
   // 5. ESTADO
   // ===============================================================
   let scene, camera, renderer, clock;
+  const resTeto = Math.min(window.devicePixelRatio || 1, 1.5);
+  let escalaRes = resTeto, resSoma = 0, resConta = 0, resUltimo = 0;
   let yaw = 0, pitch = 0;
   let pointerLocked = false;
   let keys = {};
@@ -1363,7 +1365,7 @@
     camera.rotation.set(0, yaw, 0);
 
     renderer = new THREE.WebGLRenderer({canvas, antialias:true});
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio,2));
+    renderer.setPixelRatio(escalaRes);
     renderer.setSize(window.innerWidth, window.innerHeight);
     renderer.outputEncoding = THREE.sRGBEncoding;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -1387,6 +1389,10 @@
     document.addEventListener('pointerlockchange', onPointerLockChange);
     document.addEventListener('pointerlockerror', ()=>{ toast('Mouse não travou aqui — clique na cena para tentar de novo'); });
 
+    const t0tex = performance.now();
+    TEX.prepararTudo();
+    const msTex = Math.round(performance.now() - t0tex);
+
     carregarModelos((algum)=>{
       try{
         buildWorld();
@@ -1396,6 +1402,14 @@
       }
       updateQuestHud();
       refreshNpcMarks();
+      // Compila tudo agora. Cada material inédito que entra em cena manda o
+      // navegador compilar um programa novo, e é aí que o jogo engasga.
+      try{
+        const t0c = performance.now();
+        renderer.compile(scene, camera);
+        console.log('[Mage Harroy] texturas em ' + msTex + 'ms, sombreadores em ' +
+                    Math.round(performance.now() - t0c) + 'ms');
+      }catch(e){}
       if(algum) console.log('[Mage Harroy] modelos externos carregados de models/');
     });
 
@@ -1453,12 +1467,17 @@
       c.width = c.height = n;
       return { c, x: c.getContext('2d'), n };
     }
-    // desenha a mesma forma nas nove posições vizinhas: o que sai por
-    // um lado entra pelo outro, e a emenda desaparece
-    function emenda(t, fn){
-      for(let dx=-1; dx<=1; dx++) for(let dy=-1; dy<=1; dy++){
-        t.x.save(); t.x.translate(dx*t.n, dy*t.n); fn(); t.x.restore();
-      }
+    // Para a imagem repetir sem emenda, o que sai por um lado tem de entrar
+    // pelo outro. Só as formas que encostam na borda precisam de cópia —
+    // desenhar as nove sempre custava nove vezes mais caro.
+    function emenda(t, px, py, r, fn){
+      const n = t.n;
+      const ex = (px < r) ? 1 : ((px > n - r) ? -1 : 0);
+      const ey = (py < r) ? 1 : ((py > n - r) ? -1 : 0);
+      fn();
+      if(ex){          t.x.save(); t.x.translate(ex*n, 0);    fn(); t.x.restore(); }
+      if(ey){          t.x.save(); t.x.translate(0,    ey*n); fn(); t.x.restore(); }
+      if(ex && ey){    t.x.save(); t.x.translate(ex*n, ey*n); fn(); t.x.restore(); }
     }
     function fundo(t, cor){ t.x.fillStyle = cor; t.x.fillRect(0,0,t.n,t.n); }
     function grao(t, forca, passo){
@@ -1475,7 +1494,7 @@
         const cor = cores[(rnd2()*cores.length)|0];
         t.x.globalAlpha = alfa;
         t.x.fillStyle = cor;
-        emenda(t, ()=>{ t.x.beginPath(); t.x.arc(px,py,r,0,6.284); t.x.fill(); });
+        emenda(t, px, py, r+1, ()=>{ t.x.beginPath(); t.x.arc(px,py,r,0,6.284); t.x.fill(); });
         t.x.globalAlpha = 1;
       }
     }
@@ -1488,7 +1507,7 @@
         t.x.strokeStyle = cores[(rnd2()*cores.length)|0];
         t.x.lineWidth = larg;
         t.x.lineCap = 'round';
-        emenda(t, ()=>{
+        emenda(t, px, py, c+larg, ()=>{
           t.x.beginPath(); t.x.moveTo(px,py);
           t.x.lineTo(px + Math.cos(a)*c, py + Math.sin(a)*c); t.x.stroke();
         });
@@ -1515,7 +1534,7 @@
             t.x.lineWidth = ent(1.1, 2.2);
             t.x.lineCap = 'round';
             t.x.globalAlpha = 0.9;
-            emenda(t, ()=>{
+            emenda(t, px, py, c+4, ()=>{
               t.x.beginPath(); t.x.moveTo(px,py);
               t.x.quadraticCurveTo(px + Math.cos(a2)*c*0.6, py + Math.sin(a2)*c*0.6,
                                    px + Math.cos(a2)*c + ent(-3,3), py + Math.sin(a2)*c);
@@ -1526,16 +1545,6 @@
         }
         manchas(t, 70, 1.2, 3.2, ['#c7d99a','#e3d98a'], 0.5);   // sementes e florzinhas
         grao(t, 12, 3);
-        return t.c;
-      },
-      // grama alta e viçosa do vale, com um tom arcano puxando pro azul
-      gramaVale(){
-        const t = tela(256);
-        fundo(t, '#3a5136');
-        manchas(t, 60, 10, 34, ['#44603c','#32472f','#4e6b45'], 0.5);
-        riscos(t, 850, 12, 1.7, ['#5d8050','#486640','#6d9159'], 0.7);
-        riscos(t, 200, 8, 1.2, ['#8fb27c','#26361f'], 0.5);
-        grao(t, 14, 3);
         return t.c;
       },
       // chão da floresta: terra escura, agulhas caídas e raízes
@@ -1570,7 +1579,7 @@
           const px = gx*cel + ox, py = gy*cel;
           const tom = 96 + ((rnd2()*46)|0);
           t.x.fillStyle = 'rgb('+tom+','+tom+','+(tom+4)+')';
-          emenda(t, ()=> t.x.fillRect(px+2, py+2, cel-4, cel-4));
+          emenda(t, px, py, cel, ()=> t.x.fillRect(px+2, py+2, cel-4, cel-4));
         }
         t.x.globalAlpha = 0.5;
         manchas(t, 60, 4, 16, ['#8b8b92','#4d4d54'], 0.5);
@@ -1590,7 +1599,7 @@
             const px = fx*lw + ox, py = fy*lh;
             const tom = 104 + ((rnd2()*42)|0);
             t.x.fillStyle = 'rgb('+tom+','+(tom-3)+','+(tom+3)+')';
-            emenda(t, ()=> t.x.fillRect(px+2.5, py+2.5, lw-5, lh-5));
+            emenda(t, px, py, lw, ()=> t.x.fillRect(px+2.5, py+2.5, lw-5, lh-5));
           }
         }
         manchas(t, 90, 3, 11, ['#7e7e86','#43434a'], 0.4);
@@ -1624,7 +1633,7 @@
         for(let i=0;i<5;i++){
           const px = rnd2()*t.n, py = rnd2()*t.n, r = ent(4,9);
           t.x.strokeStyle = 'rgba(70,52,34,.6)'; t.x.lineWidth = 2;
-          emenda(t, ()=>{ t.x.beginPath(); t.x.ellipse(px,py,r,r*0.6,0,0,6.284); t.x.stroke(); });
+          emenda(t, px, py, r+2, ()=>{ t.x.beginPath(); t.x.ellipse(px,py,r,r*0.6,0,0,6.284); t.x.stroke(); });
         }
         grao(t, 16, 2);
         return t.c;
@@ -1640,7 +1649,7 @@
             const px = fx*lw + ox, py = fy*lh;
             const tom = 92 + ((rnd2()*48)|0);
             t.x.fillStyle = 'rgb('+(tom+16)+','+tom+','+(tom+6)+')';
-            emenda(t, ()=>{
+            emenda(t, px, py, lw+8, ()=>{
               t.x.beginPath();
               t.x.moveTo(px, py);
               t.x.lineTo(px+lw-3, py);
@@ -1694,7 +1703,7 @@
         for(let gy=0; gy<3; gy++) for(let gx=0; gx<3; gx++){
           const tom = 92 + ((rnd2()*36)|0);
           t.x.fillStyle = 'rgb('+tom+','+tom+','+(tom+8)+')';
-          emenda(t, ()=> t.x.fillRect(gx*cel+2, gy*cel+2, cel-4, cel-4));
+          emenda(t, gx*cel, gy*cel, cel, ()=> t.x.fillRect(gx*cel+2, gy*cel+2, cel-4, cel-4));
         }
         riscos(t, 110, 34, 1.4, ['#3a3a44','#7d7d88'], 0.4);
         manchas(t, 70, 3, 14, ['#7a7a85','#45454e'], 0.4);
@@ -1719,7 +1728,7 @@
         for(let fy=0; fy<t.n/lh+1; fy++){
           const tom = 98 + ((rnd2()*40)|0);
           t.x.fillStyle = 'rgb('+tom+','+(tom-6)+','+(tom+14)+')';
-          emenda(t, ()=> t.x.fillRect(0, fy*lh+2, t.n, lh-4));
+          emenda(t, t.n/2, fy*lh, lh, ()=> t.x.fillRect(0, fy*lh+2, t.n, lh-4));
         }
         riscos(t, 60, 30, 1.6, ['#4a4458','#8f89a4'], 0.4);
         manchas(t, 60, 3, 12, ['#87809c','#4e4860'], 0.4);
@@ -1747,6 +1756,13 @@
     };
 
     return {
+      // Gera todas as imagens de uma vez. Antes elas nasciam na primeira vez
+      // que eram usadas — e isso caía no meio da partida, travando.
+      prepararTudo(){
+        Object.keys(receitas).forEach(t=>{
+          if(!prontas['img|'+t]) prontas['img|'+t] = receitas[t]();
+        });
+      },
       get(tipo, rep){
         const k = tipo + '|' + rep;
         if(prontas[k]) return prontas[k];
@@ -1756,7 +1772,7 @@
         t.wrapS = t.wrapT = THREE.RepeatWrapping;
         t.repeat.set(rep, rep);
         t.encoding = THREE.sRGBEncoding;
-        t.anisotropy = 8;
+        t.anisotropy = 4;
         prontas[k] = t;
         return t;
       }
@@ -1833,6 +1849,21 @@
     ice:   new THREE.ConeGeometry(1,1,5).translate(0,0.5,0),
     lapide: new THREE.BoxGeometry(1.5,1,0.35).translate(0,0.5,0),
     arvoreMorta: new THREE.CylinderGeometry(0.16,0.42,5.2,6).translate(0,2.6,0),
+    montanha: (function(){
+      // Cone amassado: um cone limpo parece origami. As faces ganham
+      // quebras, e cada pico ainda gira e se estica por conta própria.
+      const g = new THREE.ConeGeometry(1,1,9).translate(0,0.5,0);
+      const pos = g.attributes.position;
+      for(let i=0;i<pos.count;i++){
+        const x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i);
+        if(y > 0.9){ pos.setXYZ(i, x + (Math.random()-0.5)*0.18, y, z + (Math.random()-0.5)*0.18); continue; }
+        const k = 1 + (Math.random()-0.5)*0.30;
+        pos.setXYZ(i, x*k, y * (1 + (Math.random()-0.5)*0.16), z*k);
+      }
+      pos.needsUpdate = true;
+      g.computeVertexNormals();
+      return g;
+    })(),
   };
   const _m4 = ()=> new THREE.Matrix4();
   function instMatrix(x,y,z, rx,ry,rz, sx,sy,sz){
@@ -1860,21 +1891,16 @@
   // Uma camada de chão = padrão que se repete + uma mancha larga por cima,
   // só para a repetição do azulejo não saltar aos olhos.
   const CHAO_PASSO = 2.9;              // metros por azulejo
+  // O chão é o que mais ocupa tela. Uma só passada, sem relevo e sem camada
+  // transparente em cima: era isso que estava engasgando o jogo.
   function camadaChao(geo, tipo, cor, x, y, z){
-    const g = new THREE.Group();
-    const raio = geo.boundingSphere ? geo.boundingSphere.radius : (geo.computeBoundingSphere(), geo.boundingSphere.radius);
-    const base = new THREE.Mesh(geo, matStd(cor, {tex:tipo, rep:(raio*2)/CHAO_PASSO, bump:0.4}));
+    if(!geo.boundingSphere) geo.computeBoundingSphere();
+    const raio = geo.boundingSphere.radius;
+    const base = new THREE.Mesh(geo, matStd(cor, {tex:tipo, rep:(raio*2)/CHAO_PASSO}));
     base.rotation.x = -Math.PI/2;
-    g.add(base);
-    const macro = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({
-      map: TEX.get('macro', (raio*2)/38), transparent:true, opacity:0.34, depthWrite:false
-    }));
-    macro.rotation.x = -Math.PI/2;
-    macro.position.y = 0.014;
-    g.add(macro);
-    g.position.set(x, y, z);
-    scene.add(g);
-    return g;
+    base.position.set(x, y, z);
+    scene.add(base);
+    return base;
   }
 
   // Cada bioma tem o seu piso: é o que faz o mundo deixar de ser um tapete só
@@ -1891,15 +1917,11 @@
 
   function buildWorld(){
     // Campo aberto: grama por toda parte fora dos biomas
-    const ground = new THREE.Mesh(new THREE.CircleGeometry(WORLD_R+40, 84),
-                   matStd(0xc3d2ad, {tex:'grama', rep:(WORLD_R+40)*2/CHAO_PASSO, bump:0.35}));
+    const R_CHAO = WORLD_R + 262;         // passa por baixo da serra inteira
+    const ground = new THREE.Mesh(new THREE.CircleGeometry(R_CHAO, 72),
+                   matStd(0xc3d2ad, {tex:'grama', rep:R_CHAO*2/CHAO_PASSO}));
     ground.rotation.x = -Math.PI/2;
     scene.add(ground);
-    const gmacro = new THREE.Mesh(new THREE.CircleGeometry(WORLD_R+40, 84),
-                   new THREE.MeshBasicMaterial({map:TEX.get('macro', (WORLD_R+40)*2/44),
-                                                transparent:true, opacity:0.34, depthWrite:false}));
-    gmacro.rotation.x = -Math.PI/2; gmacro.position.y = 0.008;
-    scene.add(gmacro);
 
     // Discos de bioma, cada um com o seu piso e a borda irregular
     ZONES.forEach(z=>{
@@ -1908,13 +1930,8 @@
                  z.x, 0.02 + Math.random()*0.005, z.z);
     });
 
-    // Muralha de névoa / limite do mundo
-    const wall = new THREE.Mesh(
-      new THREE.CylinderGeometry(WORLD_R+6, WORLD_R+6, 26, 64, 1, true),
-      new THREE.MeshBasicMaterial({color:0x3a2f5e, side:THREE.BackSide, transparent:true, opacity:.55, fog:true})
-    );
-    wall.position.y = 13;
-    scene.add(wall);
+    // No lugar da muralha de névoa que fechava o mundo: uma serra em volta.
+    buildSerra();
 
     loteAtual='vale';      buildHouse();
     buildValeDecor();      flushInstances();
@@ -1935,6 +1952,46 @@
     spawnGolems(3);
     spawnSombras(4);
     buildTrainingDummies();
+  }
+
+  // ---- Cordilheira da borda -------------------------------------------
+  // O jogador para de andar no raio 178. Daí para fora entram duas fileiras
+  // de picos: a névoa os deixa em silhueta, e é o recorte irregular contra o
+  // céu que faz a borda virar paisagem em vez de parede.
+  function buildSerra(){
+    loteAtual = 'serra';
+    const geo = GEO.montanha;
+    const pedra = matStd(0x6f6b80, {tex:'rocha', rep:2.2, flatShading:true, bump:0.5});
+    const neve  = matStd(0xd2dbe8, {tex:'neve',  rep:1.6, flatShading:true});
+    // Três fileiras. Nenhuma encosta no jogador: de perto um pico vira um
+    // paredão escuro, e é justamente o que se quer evitar. Longe, a névoa
+    // os transforma em silhueta — que é como serra distante se parece.
+    const fileiras = [
+      { raio:[198, 244], alt:[ 9,  22], gordura:[1.1, 2.1], n:72, neve:0    },  // morros
+      { raio:[252, 296], alt:[38,  76], gordura:[0.8, 1.4], n:58, neve:0.12 },  // serra
+      { raio:[308, 386], alt:[74, 142], gordura:[0.7, 1.2], n:44, neve:0.45 },  // cumes ao fundo
+    ];
+    fileiras.forEach((fi, idx)=>{
+      for(let i=0;i<fi.n;i++){
+        const a  = (i/fi.n)*Math.PI*2 + rnd(-0.06, 0.06);
+        const r  = rnd(fi.raio[0], fi.raio[1]);
+        const h  = rnd(fi.alt[0],  fi.alt[1]);
+        const w  = h * rnd(fi.gordura[0], fi.gordura[1]);   // largura puxada da altura
+        const w2 = w * rnd(0.75, 1.25);          // nenhum pico é redondo
+        const ry = Math.random()*Math.PI*2;
+        const x  = Math.cos(a)*r, z = Math.sin(a)*r;
+        const base = -h*0.06;                     // enterra o pé, sem vão
+        pushInst('serra'+idx, geo, pedra, instMatrix(x, base, z, 0, ry, 0, w, h, w2));
+        if(Math.random() < fi.neve){
+          const hn = h * rnd(0.18, 0.30);         // só o cume fica branco
+          const k  = (hn/h) * 1.015;
+          pushInst('serraNeve'+idx, geo, neve,
+                   instMatrix(x, base + h - hn, z, 0, ry, 0, w*k, hn, w2*k));
+        }
+      }
+    });
+    flushInstances();
+    loteAtual = 'mundo';
   }
 
   // ---- Casa principal -------------------------------------------------
@@ -2248,7 +2305,7 @@
     const CX = z.x, CZ = z.z;
     const H = 5.4, T = 1.2, HALF = 22;   // muralha 44x44
     const stone = matStd(0x514968, {tex:'tijolo', rep:3.0, roughness:1, flatShading:true, bump:0.6});
-    const stoneDark = matStd(0x3a3151, {tex:'laje', rep:12.0, roughness:1, bump:0.5});
+    const stoneDark = matStd(0x3a3151, {tex:'laje', rep:12.0, roughness:1});
 
     // Piso do calabouço
     const floor = new THREE.Mesh(new THREE.BoxGeometry(HALF*2+2, 0.4, HALF*2+2), stoneDark);
@@ -2365,7 +2422,7 @@
   // ---- Um Lugar Silencioso: a arena de Mundus, fora do mundo ----
   function buildArena(){
     const A = ARENA;
-    const pisoMat = matStd(0x585e72, {tex:'arena', rep:9.0, roughness:1, bump:0.55});
+    const pisoMat = matStd(0x585e72, {tex:'arena', rep:9.0, roughness:1});
     const piso = new THREE.Mesh(new THREE.CylinderGeometry(A.r, A.r-3, 1.2, 56), pisoMat);
     piso.position.set(A.x, -0.6, A.z);
     scene.add(piso);
@@ -2421,7 +2478,7 @@
   // ---- Cemitério Balbúrdioso: campo grande, aberto, cheio de lápides ----
   function buildCemiterio(){
     const C = CEM;
-    const chao = new THREE.Mesh(new THREE.CircleGeometry(C.r, 64), matStd(0xb2b498, {tex:'cemiterio', rep:(C.r*2)/CHAO_PASSO, roughness:1, bump:0.4}));
+    const chao = new THREE.Mesh(new THREE.CircleGeometry(C.r, 48), matStd(0xb2b498, {tex:'cemiterio', rep:(C.r*2)/CHAO_PASSO, roughness:1}));
     chao.rotation.x = -Math.PI/2;
     chao.position.set(C.x, 0.03, C.z);
     scene.add(chao);
@@ -3620,6 +3677,24 @@ function animarAldric(modelo, t, dt){
     camera.aspect = window.innerWidth/window.innerHeight;
     camera.updateProjectionMatrix();
     renderer.setSize(window.innerWidth, window.innerHeight);
+  }
+
+  // Resolução adaptativa: em máquina folgada desenha nítido, em máquina
+  // apertada desenha menos pixels em vez de engasgar. O jogador só vê o
+  // jogo continuar liso.
+  function ajustarResolucao(ms){
+    resSoma += ms; resConta++;
+    if(resConta < 40) return;
+    const media = resSoma/resConta;
+    resSoma = 0; resConta = 0;
+    let nova = escalaRes;
+    if(media > 21)      nova = Math.max(0.62, escalaRes - 0.18);   // abaixo de ~48 fps
+    else if(media < 13) nova = Math.min(resTeto, escalaRes + 0.10); // acima de ~77 fps
+    if(Math.abs(nova - escalaRes) > 0.02){
+      escalaRes = nova;
+      renderer.setPixelRatio(escalaRes);
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    }
   }
 
   // Enquanto uma tela cheia estiver aberta (fase concluída, chamado do livro,
@@ -5614,6 +5689,9 @@ function animarAldric(modelo, t, dt){
     updateHUD();
 
     renderer.render(scene, camera);
+    const agora = performance.now();
+    if(resUltimo) ajustarResolucao(agora - resUltimo);
+    resUltimo = agora;
   }
 
   function updateBillboards(){
