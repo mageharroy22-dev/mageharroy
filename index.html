@@ -1079,8 +1079,8 @@
   // Se o arquivo não estiver lá, o jogo usa o modelo interno de sempre.
   // ===============================================================
   const MODELOS = {
-    goblin: { arquivo:'models/goblin.glb', altura:1.85, giro:0, giroX:0,          brilho:2.30, pronto:null },
-    golem:  { arquivo:'models/golem.glb',  altura:5.60, giro:0, giroX:0,          brilho:2.90, pronto:null },
+    // Goblin e golem voltaram a ser modelados no código: os .glb vinham com
+    // proporções que não conversavam com o resto do mundo.
     // O pinheiro foi exportado deitado (Z para cima): -90° em X o coloca de pé
     arvore: { arquivo:'models/arvore.glb', altura:7.20, giro:0, giroX:-Math.PI/2, brilho:1.35, pronto:null },
   };
@@ -1436,11 +1436,353 @@
   }
   function rnd(a,b){ return a + Math.random()*(b-a); }
 
+  // ---------------------------------------------------------------
+  // TEXTURAS
+  // Nada vem de arquivo: cada padrão é desenhado num canvas na hora
+  // que o jogo abre. São imagens que se repetem sem costura visível,
+  // e a mesma imagem serve de relevo (bumpMap) para a luz pegar.
+  // ---------------------------------------------------------------
+  const TEX = (function(){
+    const prontas = {};
+    let semente = 1337;
+    const rnd2 = ()=>{ semente = (semente*1664525 + 1013904223) & 0x7fffffff; return semente/0x7fffffff; };
+    const ent = (a,b)=> a + rnd2()*(b-a);
+
+    function tela(n){
+      const c = document.createElement('canvas');
+      c.width = c.height = n;
+      return { c, x: c.getContext('2d'), n };
+    }
+    // desenha a mesma forma nas nove posições vizinhas: o que sai por
+    // um lado entra pelo outro, e a emenda desaparece
+    function emenda(t, fn){
+      for(let dx=-1; dx<=1; dx++) for(let dy=-1; dy<=1; dy++){
+        t.x.save(); t.x.translate(dx*t.n, dy*t.n); fn(); t.x.restore();
+      }
+    }
+    function fundo(t, cor){ t.x.fillStyle = cor; t.x.fillRect(0,0,t.n,t.n); }
+    function grao(t, forca, passo){
+      const img = t.x.getImageData(0,0,t.n,t.n), d = img.data;
+      for(let i=0;i<d.length;i+=4*(passo||1)){
+        const v = (rnd2()-0.5)*forca;
+        d[i] += v; d[i+1] += v; d[i+2] += v;
+      }
+      t.x.putImageData(img,0,0);
+    }
+    function manchas(t, qtd, rmin, rmax, cores, alfa){
+      for(let i=0;i<qtd;i++){
+        const px = rnd2()*t.n, py = rnd2()*t.n, r = ent(rmin,rmax);
+        const cor = cores[(rnd2()*cores.length)|0];
+        t.x.globalAlpha = alfa;
+        t.x.fillStyle = cor;
+        emenda(t, ()=>{ t.x.beginPath(); t.x.arc(px,py,r,0,6.284); t.x.fill(); });
+        t.x.globalAlpha = 1;
+      }
+    }
+    function riscos(t, qtd, comp, larg, cores, alfa){
+      for(let i=0;i<qtd;i++){
+        const px = rnd2()*t.n, py = rnd2()*t.n;
+        const a = ent(-0.5,0.5) - Math.PI/2;
+        const c = ent(comp*0.5, comp);
+        t.x.globalAlpha = alfa;
+        t.x.strokeStyle = cores[(rnd2()*cores.length)|0];
+        t.x.lineWidth = larg;
+        t.x.lineCap = 'round';
+        emenda(t, ()=>{
+          t.x.beginPath(); t.x.moveTo(px,py);
+          t.x.lineTo(px + Math.cos(a)*c, py + Math.sin(a)*c); t.x.stroke();
+        });
+        t.x.globalAlpha = 1;
+      }
+    }
+
+    // ---- os padrões ----
+    const receitas = {
+      // grama do campo aberto: tufos curtos em vários verdes
+      grama(){
+        const t = tela(512);
+        fundo(t, '#4e6f34');
+        manchas(t, 90, 14, 52, ['#5b8140','#405c2c','#688f46','#375026'], 0.55);
+        // tufos: cada um é um leque de folhas saindo do mesmo ponto
+        for(let i=0;i<520;i++){
+          const px = rnd2()*t.n, py = rnd2()*t.n;
+          const base = ent(-0.6, 0.6) - Math.PI/2;
+          const n = 3 + ((rnd2()*4)|0);
+          for(let k=0;k<n;k++){
+            const a2 = base + ent(-0.55, 0.55);
+            const c = ent(9, 20);
+            t.x.strokeStyle = ['#7ea855','#8fbd60','#5d8038','#9ecb6d','#456029'][(rnd2()*5)|0];
+            t.x.lineWidth = ent(1.1, 2.2);
+            t.x.lineCap = 'round';
+            t.x.globalAlpha = 0.9;
+            emenda(t, ()=>{
+              t.x.beginPath(); t.x.moveTo(px,py);
+              t.x.quadraticCurveTo(px + Math.cos(a2)*c*0.6, py + Math.sin(a2)*c*0.6,
+                                   px + Math.cos(a2)*c + ent(-3,3), py + Math.sin(a2)*c);
+              t.x.stroke();
+            });
+            t.x.globalAlpha = 1;
+          }
+        }
+        manchas(t, 70, 1.2, 3.2, ['#c7d99a','#e3d98a'], 0.5);   // sementes e florzinhas
+        grao(t, 12, 3);
+        return t.c;
+      },
+      // grama alta e viçosa do vale, com um tom arcano puxando pro azul
+      gramaVale(){
+        const t = tela(256);
+        fundo(t, '#3a5136');
+        manchas(t, 60, 10, 34, ['#44603c','#32472f','#4e6b45'], 0.5);
+        riscos(t, 850, 12, 1.7, ['#5d8050','#486640','#6d9159'], 0.7);
+        riscos(t, 200, 8, 1.2, ['#8fb27c','#26361f'], 0.5);
+        grao(t, 14, 3);
+        return t.c;
+      },
+      // chão da floresta: terra escura, agulhas caídas e raízes
+      floresta(){
+        const t = tela(512);
+        fundo(t, '#4a4a30');
+        manchas(t, 110, 12, 44, ['#55553a','#3e3e28','#616141'], 0.55);
+        riscos(t, 1100, 16, 1.8, ['#7a6a3c','#8a7444','#5a5030','#6d7a42'], 0.7);   // agulhas caídas
+        manchas(t, 220, 2, 6, ['#8a7448','#2e2e1e'], 0.6);                          // gravetos e terra
+        manchas(t, 60, 6, 18, ['#3f5a33'], 0.35);                                   // ilhas de musgo
+        grao(t, 14, 2);
+        return t.c;
+      },
+      // pântano: lama molhada com poças e limo
+      lama(){
+        const t = tela(512);
+        fundo(t, '#4e5a4a');
+        manchas(t, 110, 14, 48, ['#58654f','#44503f','#616e56'], 0.6);
+        manchas(t, 40, 16, 44, ['#64806a','#33423a'], 0.35);      // poças
+        riscos(t, 420, 22, 3.0, ['#5d7a62','#343f37'], 0.4);      // sulcos de água escorrida
+        manchas(t, 200, 2, 6, ['#7a9070','#262e28'], 0.55);       // limo e pedrinha
+        grao(t, 12, 2);
+        return t.c;
+      },
+      // laje do calabouço: pedra grande, junta funda e rachaduras
+      laje(){
+        const t = tela(256);
+        fundo(t, '#6d6d74');
+        const cel = 64;
+        for(let gy=0; gy<t.n/cel; gy++) for(let gx=0; gx<t.n/cel; gx++){
+          const ox = (gy%2) ? cel/2 : 0;
+          const px = gx*cel + ox, py = gy*cel;
+          const tom = 96 + ((rnd2()*46)|0);
+          t.x.fillStyle = 'rgb('+tom+','+tom+','+(tom+4)+')';
+          emenda(t, ()=> t.x.fillRect(px+2, py+2, cel-4, cel-4));
+        }
+        t.x.globalAlpha = 0.5;
+        manchas(t, 60, 4, 16, ['#8b8b92','#4d4d54'], 0.5);
+        t.x.globalAlpha = 1;
+        riscos(t, 70, 22, 1.2, ['#3c3c43'], 0.45);
+        grao(t, 20, 2);
+        return t.c;
+      },
+      // alvenaria: fiadas de blocos com argamassa clara
+      tijolo(){
+        const t = tela(256);
+        fundo(t, '#57575e');
+        const lh = 32, lw = 64;
+        for(let fy=0; fy<t.n/lh; fy++){
+          const ox = (fy%2) ? lw/2 : 0;
+          for(let fx=-1; fx<t.n/lw; fx++){
+            const px = fx*lw + ox, py = fy*lh;
+            const tom = 104 + ((rnd2()*42)|0);
+            t.x.fillStyle = 'rgb('+tom+','+(tom-3)+','+(tom+3)+')';
+            emenda(t, ()=> t.x.fillRect(px+2.5, py+2.5, lw-5, lh-5));
+          }
+        }
+        manchas(t, 90, 3, 11, ['#7e7e86','#43434a'], 0.4);
+        grao(t, 22, 2);
+        return t.c;
+      },
+      // rocha bruta, para pedras e colunas
+      rocha(){
+        const t = tela(256);
+        fundo(t, '#6b6b72');
+        manchas(t, 130, 10, 44, ['#7d7d85','#595960','#868690','#4c4c53'], 0.45);
+        riscos(t, 120, 26, 1.6, ['#43434a','#8e8e98'], 0.35);
+        manchas(t, 200, 1.5, 4.5, ['#909099','#3e3e45'], 0.5);
+        grao(t, 26, 2);
+        return t.c;
+      },
+      // madeira: veios no sentido do comprimento, com nós
+      madeira(){
+        const t = tela(256);
+        fundo(t, '#7a6248');
+        for(let i=0;i<70;i++){
+          const py = rnd2()*t.n;
+          const tom = 96 + ((rnd2()*70)|0);
+          t.x.strokeStyle = 'rgba('+(tom+22)+','+tom+','+(tom-26)+',0.5)';
+          t.x.lineWidth = ent(1,6);
+          t.x.beginPath();
+          t.x.moveTo(0, py);
+          for(let px=0; px<=t.n; px+=16) t.x.lineTo(px, py + Math.sin(px*0.05 + i)*2.2);
+          t.x.stroke();
+        }
+        for(let i=0;i<5;i++){
+          const px = rnd2()*t.n, py = rnd2()*t.n, r = ent(4,9);
+          t.x.strokeStyle = 'rgba(70,52,34,.6)'; t.x.lineWidth = 2;
+          emenda(t, ()=>{ t.x.beginPath(); t.x.ellipse(px,py,r,r*0.6,0,0,6.284); t.x.stroke(); });
+        }
+        grao(t, 16, 2);
+        return t.c;
+      },
+      // telha: fiadas de escamas sobrepostas
+      telha(){
+        const t = tela(256);
+        fundo(t, '#5b4a4e');
+        const lh = 28, lw = 42;
+        for(let fy=0; fy<t.n/lh+1; fy++){
+          const ox = (fy%2) ? lw/2 : 0;
+          for(let fx=-1; fx<t.n/lw+1; fx++){
+            const px = fx*lw + ox, py = fy*lh;
+            const tom = 92 + ((rnd2()*48)|0);
+            t.x.fillStyle = 'rgb('+(tom+16)+','+tom+','+(tom+6)+')';
+            emenda(t, ()=>{
+              t.x.beginPath();
+              t.x.moveTo(px, py);
+              t.x.lineTo(px+lw-3, py);
+              t.x.lineTo(px+lw-3, py+lh-8);
+              t.x.quadraticCurveTo(px+(lw-3)/2, py+lh+4, px, py+lh-8);
+              t.x.closePath(); t.x.fill();
+            });
+          }
+        }
+        grao(t, 18, 2);
+        return t.c;
+      },
+      // pano de tenda, tecido cru
+      pano(){
+        const t = tela(128);
+        fundo(t, '#8a7a60');
+        for(let i=0;i<t.n;i+=3){
+          t.x.strokeStyle = 'rgba(255,255,255,.10)'; t.x.lineWidth = 1.5;
+          t.x.beginPath(); t.x.moveTo(i,0); t.x.lineTo(i,t.n); t.x.stroke();
+          t.x.strokeStyle = 'rgba(0,0,0,.12)';
+          t.x.beginPath(); t.x.moveTo(0,i+1.5); t.x.lineTo(t.n,i+1.5); t.x.stroke();
+        }
+        manchas(t, 26, 5, 18, ['#9c8c70','#6d5f49'], 0.3);
+        grao(t, 14, 2);
+        return t.c;
+      },
+      // neve do pico, com covinhas e brilho
+      neve(){
+        const t = tela(256);
+        fundo(t, '#c9d6e6');
+        manchas(t, 90, 10, 40, ['#dce6f2','#b4c3d6','#e8eff7'], 0.45);
+        manchas(t, 300, 1, 3, ['#ffffff','#9fb0c6'], 0.55);
+        grao(t, 14, 2);
+        return t.c;
+      },
+      // campo do cemitério: capim seco sobre terra batida
+      cemiterio(){
+        const t = tela(512);
+        fundo(t, '#5a5a3e');
+        manchas(t, 110, 12, 46, ['#66663f','#4a4a33','#726e48'], 0.55);
+        riscos(t, 1200, 17, 1.7, ['#85804f','#726c44','#5a5738','#938c58'], 0.72);  // capim seco
+        manchas(t, 180, 2, 6, ['#6b6244','#33301f'], 0.5);
+        grao(t, 14, 2);
+        return t.c;
+      },
+      // piso da arena: lajota gasta, rachada no meio
+      arena(){
+        const t = tela(256);
+        fundo(t, '#63636d');
+        const cel = 85;
+        for(let gy=0; gy<3; gy++) for(let gx=0; gx<3; gx++){
+          const tom = 92 + ((rnd2()*36)|0);
+          t.x.fillStyle = 'rgb('+tom+','+tom+','+(tom+8)+')';
+          emenda(t, ()=> t.x.fillRect(gx*cel+2, gy*cel+2, cel-4, cel-4));
+        }
+        riscos(t, 110, 34, 1.4, ['#3a3a44','#7d7d88'], 0.4);
+        manchas(t, 70, 3, 14, ['#7a7a85','#45454e'], 0.4);
+        grao(t, 22, 2);
+        return t.c;
+      },
+      // chão do vale em volta da casa: terra pisada e pedrinhas
+      terra(){
+        const t = tela(256);
+        fundo(t, '#6a5b4c');
+        manchas(t, 90, 8, 30, ['#756553','#5b4e42','#7f7060'], 0.5);
+        manchas(t, 220, 1.5, 4.5, ['#8d8172','#4a4038'], 0.55);
+        riscos(t, 90, 20, 1.2, ['#4d4239'], 0.35);
+        grao(t, 22, 2);
+        return t.c;
+      },
+      // torre e obelisco: pedra lavrada com veio arcano
+      arcana(){
+        const t = tela(256);
+        fundo(t, '#6a6478');
+        const lh = 42;
+        for(let fy=0; fy<t.n/lh+1; fy++){
+          const tom = 98 + ((rnd2()*40)|0);
+          t.x.fillStyle = 'rgb('+tom+','+(tom-6)+','+(tom+14)+')';
+          emenda(t, ()=> t.x.fillRect(0, fy*lh+2, t.n, lh-4));
+        }
+        riscos(t, 60, 30, 1.6, ['#4a4458','#8f89a4'], 0.4);
+        manchas(t, 60, 3, 12, ['#87809c','#4e4860'], 0.4);
+        grao(t, 20, 2);
+        return t.c;
+      },
+      // pele de goblin: couro grosso, com verrugas e veios
+      pele(){
+        const t = tela(256);
+        fundo(t, '#8d9a78');
+        manchas(t, 90, 8, 30, ['#97a481','#7e8b6b','#a3b08c'], 0.5);
+        manchas(t, 150, 2, 6, ['#a8b591','#6d7a5c'], 0.55);
+        riscos(t, 130, 16, 1.6, ['#6b7859','#9daa86'], 0.35);
+        grao(t, 20, 2);
+        return t.c;
+      },
+      // mancha grande e suave, só para quebrar a repetição do chão
+      macro(){
+        const t = tela(256);
+        t.x.clearRect(0,0,t.n,t.n);
+        manchas(t, 34, 26, 78, ['#000000'], 0.13);
+        manchas(t, 26, 20, 64, ['#ffffff'], 0.10);
+        return t.c;
+      },
+    };
+
+    return {
+      get(tipo, rep){
+        const k = tipo + '|' + rep;
+        if(prontas[k]) return prontas[k];
+        if(!receitas[tipo]) return null;
+        if(!prontas['img|'+tipo]) prontas['img|'+tipo] = receitas[tipo]();
+        const t = new THREE.CanvasTexture(prontas['img|'+tipo]);
+        t.wrapS = t.wrapT = THREE.RepeatWrapping;
+        t.repeat.set(rep, rep);
+        t.encoding = THREE.sRGBEncoding;
+        t.anisotropy = 8;
+        prontas[k] = t;
+        return t;
+      }
+    };
+  })();
+
   // --- Instanciação: árvores e pedras viram poucas chamadas de desenho ---
   const MATS = {};
+  // matStd(cor, {tex:'rocha', rep:4})  ->  a cor continua mandando no tom e a
+  // textura entra como desenho e como relevo por cima dela.
   function matStd(color, opts){
     const key = color + '|' + JSON.stringify(opts||{});
-    if(!MATS[key]) MATS[key] = new THREE.MeshStandardMaterial(Object.assign({color:color, roughness:1}, opts||{}));
+    if(!MATS[key]){
+      const cfg = Object.assign({color:color, roughness:1}, opts||{});
+      if(cfg.tex){
+        const rep = cfg.rep || 1;
+        const mapa = TEX.get(cfg.tex, rep);
+        if(mapa){
+          cfg.map = mapa;
+          cfg.bumpMap = mapa;
+          cfg.bumpScale = (cfg.bump !== undefined) ? cfg.bump : 0.45;
+        }
+        delete cfg.tex; delete cfg.rep; delete cfg.bump;
+      }
+      MATS[key] = new THREE.MeshStandardMaterial(cfg);
+    }
     return MATS[key];
   }
   const INST = {};
@@ -1499,20 +1841,71 @@
       new THREE.Vector3(sx,sy,sz));
   }
 
+  // Disco de chão com a borda recortada: um círculo perfeito entrega na hora
+  // que o bioma é um adesivo colado no mapa.
+  function discoRecortado(r, segs, variacao){
+    const geo = new THREE.CircleGeometry(r, segs);
+    const pos = geo.attributes.position;
+    for(let i=1; i<pos.count; i++){
+      const x = pos.getX(i), y = pos.getY(i);
+      const ang = Math.atan2(y, x);
+      const k = 1 + variacao*(Math.sin(ang*3)*0.5 + Math.sin(ang*5 + 1.2)*0.3 + Math.sin(ang*8 + 2.1)*0.2);
+      pos.setX(i, x*k); pos.setY(i, y*k);
+    }
+    pos.needsUpdate = true;
+    geo.computeVertexNormals();
+    return geo;
+  }
+
+  // Uma camada de chão = padrão que se repete + uma mancha larga por cima,
+  // só para a repetição do azulejo não saltar aos olhos.
+  const CHAO_PASSO = 2.9;              // metros por azulejo
+  function camadaChao(geo, tipo, cor, x, y, z){
+    const g = new THREE.Group();
+    const raio = geo.boundingSphere ? geo.boundingSphere.radius : (geo.computeBoundingSphere(), geo.boundingSphere.radius);
+    const base = new THREE.Mesh(geo, matStd(cor, {tex:tipo, rep:(raio*2)/CHAO_PASSO, bump:0.4}));
+    base.rotation.x = -Math.PI/2;
+    g.add(base);
+    const macro = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({
+      map: TEX.get('macro', (raio*2)/38), transparent:true, opacity:0.34, depthWrite:false
+    }));
+    macro.rotation.x = -Math.PI/2;
+    macro.position.y = 0.014;
+    g.add(macro);
+    g.position.set(x, y, z);
+    scene.add(g);
+    return g;
+  }
+
+  // Cada bioma tem o seu piso: é o que faz o mundo deixar de ser um tapete só
+  const CHAO_ZONA = {
+    vale:     { tex:'terra',     cor:0xbfb2a0 },
+    floresta: { tex:'floresta',  cor:0xb6ba9a },
+    pantano:  { tex:'lama',      cor:0xa9b7a6 },
+    calabouco:{ tex:'rocha',     cor:0x9992ad },
+    pico:     { tex:'neve',      cor:0xb6c3d4 },
+    cemiterio:{ tex:'cemiterio', cor:0xb2b498 },
+    silencio: { tex:'laje',      cor:0x7a7e91 },
+    torre:    { tex:'arcana',    cor:0xa49cbe },
+  };
+
   function buildWorld(){
-    // Terreno base
-    const groundMat = new THREE.MeshStandardMaterial({color:0x1d1729, roughness:1});
-    const ground = new THREE.Mesh(new THREE.CircleGeometry(WORLD_R+40, 72), groundMat);
+    // Campo aberto: grama por toda parte fora dos biomas
+    const ground = new THREE.Mesh(new THREE.CircleGeometry(WORLD_R+40, 84),
+                   matStd(0xc3d2ad, {tex:'grama', rep:(WORLD_R+40)*2/CHAO_PASSO, bump:0.35}));
     ground.rotation.x = -Math.PI/2;
     scene.add(ground);
+    const gmacro = new THREE.Mesh(new THREE.CircleGeometry(WORLD_R+40, 84),
+                   new THREE.MeshBasicMaterial({map:TEX.get('macro', (WORLD_R+40)*2/44),
+                                                transparent:true, opacity:0.34, depthWrite:false}));
+    gmacro.rotation.x = -Math.PI/2; gmacro.position.y = 0.008;
+    scene.add(gmacro);
 
-    // Discos de bioma
+    // Discos de bioma, cada um com o seu piso e a borda irregular
     ZONES.forEach(z=>{
-      const m = new THREE.Mesh(new THREE.CircleGeometry(z.r, 48),
-                new THREE.MeshStandardMaterial({color:z.ground, roughness:.95}));
-      m.rotation.x = -Math.PI/2;
-      m.position.set(z.x, 0.02 + Math.random()*0.005, z.z);
-      scene.add(m);
+      const c = CHAO_ZONA[z.id] || { tex:'rocha', cor:0x8f8f9a };
+      camadaChao(discoRecortado(z.r, 72, 0.055), c.tex, c.cor,
+                 z.x, 0.02 + Math.random()*0.005, z.z);
     });
 
     // Muralha de névoa / limite do mundo
@@ -1547,10 +1940,10 @@
   // ---- Casa principal -------------------------------------------------
   function buildHouse(){
     const g = new THREE.Group();
-    const wallMat  = new THREE.MeshStandardMaterial({color:0x2c231c, roughness:1});
-    const stoneMat = new THREE.MeshStandardMaterial({color:0x2a2436, roughness:1});
-    const woodMat  = new THREE.MeshStandardMaterial({color:0x2b2018, roughness:.85});
-    const roofMat  = new THREE.MeshStandardMaterial({color:0x3a2028, roughness:.95});
+    const wallMat  = matStd(0x655040, {tex:'tijolo',  rep:2.6, bump:0.55});
+    const stoneMat = matStd(0x61537c, {tex:'laje',    rep:3.4, bump:0.5});
+    const woodMat  = matStd(0x674d3a, {tex:'madeira', rep:1.6, roughness:.85, bump:0.4});
+    const roofMat  = matStd(0x804658, {tex:'telha',   rep:5.0, roughness:.95, bump:0.7});
 
     // Piso
     const floor = new THREE.Mesh(new THREE.BoxGeometry(13, 0.3, 13), stoneMat);
@@ -1572,7 +1965,7 @@
 
     // Forro interno (teto visto de dentro)
     const ceil = new THREE.Mesh(new THREE.BoxGeometry(13, 0.25, 13),
-                 new THREE.MeshStandardMaterial({color:0x241a15, roughness:1}));
+                 matStd(0x563e32, {tex:'madeira', rep:3.0, bump:0.4}));
     ceil.position.y = H + 0.12; g.add(ceil);
 
     // Telhado
@@ -1640,7 +2033,7 @@
       leg.position.set(RNX+dx, 0.5, RNZ+dz); g.add(leg);
     }
     // Bigorna rúnica e duas pedras encaixadas
-    const bigorna = new THREE.Mesh(new THREE.BoxGeometry(0.9,0.4,0.55), matStd(0x2f2b3a,{flatShading:true}));
+    const bigorna = new THREE.Mesh(new THREE.BoxGeometry(0.9,0.4,0.55), matStd(0x675f80,{tex:'rocha', rep:1.4, flatShading:true}));
     bigorna.position.set(RNX, 1.38, RNZ); g.add(bigorna);
     for(const dx of [-0.85, 0.85]){
       const encaixe = new THREE.Mesh(new THREE.TorusGeometry(0.22,0.06,8,16),
@@ -1674,7 +2067,7 @@
 
     // Tapete
     const rug = new THREE.Mesh(new THREE.CircleGeometry(3.2, 24),
-                new THREE.MeshStandardMaterial({color:0x33203c, roughness:1}));
+                matStd(0x6b437e, {tex:'pano', rep:3.2, bump:0.3}));
     rug.rotation.x = -Math.PI/2; rug.position.y = 0.32; g.add(rug);
 
     // Varanda e degraus
@@ -1692,7 +2085,7 @@
 
   function makeSignpost(x, z, text){
     const g = new THREE.Group();
-    const woodMat = new THREE.MeshStandardMaterial({color:0x3a2b1e});
+    const woodMat = matStd(0x856345, {tex:'madeira', rep:1.2, bump:0.35});
     const post = new THREE.Mesh(new THREE.CylinderGeometry(0.1,0.12,2.2,6), woodMat);
     post.position.y = 1.1; g.add(post);
     const board = makeTextPlane(text, 512, 128, '#efe4c6', 'rgba(26,19,48,.92)');
@@ -1754,8 +2147,8 @@
         return;
       }
     }
-    pushInst('trunk'+trunkColor, GEO.trunk, matStd(trunkColor), m);
-    pushInst('leaf'+leafColor,  GEO.leaf,  matStd(leafColor),  m);
+    pushInst('trunk'+trunkColor, GEO.trunk, matStd(trunkColor, {tex:'madeira', rep:1.2, bump:0.4}), m);
+    pushInst('leaf'+leafColor,  GEO.leaf,  matStd(leafColor,  {tex:'grama', rep:1.6, bump:0.3}),   m);
     addSphereCol(x, 1.4*s, z, 0.55*s);
     addSphereCol(x, 3.7*s, z, 1.4*s);
   }
@@ -1780,7 +2173,7 @@
   function makeRock(x,z,color,scale){
     const s = scale || rnd(0.5,1.5);
     const m = instMatrix(x, s*0.45, z, Math.random()*6, Math.random()*6, Math.random()*6, s,s,s);
-    pushInst('rock'+color, GEO.rock, matStd(color, {flatShading:true}), m);
+    pushInst('rock'+color, GEO.rock, matStd(color, {tex:'rocha', rep:1.0, flatShading:true, bump:0.6}), m);
     addSphereCol(x, s*0.45, z, s*1.1);
   }
 
@@ -1793,7 +2186,7 @@
       const px = Math.sin(t*3)*3.2;
       const pz = -10 - t*52;
       const st = new THREE.Mesh(new THREE.CylinderGeometry(rnd(0.7,1.1),rnd(0.7,1.1),0.12,7),
-                 new THREE.MeshStandardMaterial({color:0x3b3350, roughness:1}));
+                 matStd(0x7c6ba8, {tex:'laje', rep:1.0, bump:0.5}));
       st.position.set(px, 0.06, pz); st.rotation.y = Math.random()*3;
       scene.add(st);
     }
@@ -1819,13 +2212,13 @@
       const a = (i/5)*Math.PI*2;
       const tx = z.x + Math.cos(a)*7, tz = z.z + Math.sin(a)*7;
       const tent = new THREE.Mesh(new THREE.ConeGeometry(1.9,2.6,4),
-                   new THREE.MeshStandardMaterial({color:0x4b3a26, roughness:1, flatShading:true}));
+                   matStd(0x96744c, {tex:'pano', rep:2.2, flatShading:true, bump:0.35}));
       tent.position.set(tx, 1.3, tz); tent.rotation.y = a;
       scene.add(tent);
       addSphereCol(tx, 1.2, tz, 1.7);
     }
     const totem = new THREE.Mesh(new THREE.CylinderGeometry(0.4,0.5,4.5,6),
-                  new THREE.MeshStandardMaterial({color:0x3a2b1e}));
+                  matStd(0x856345, {tex:'madeira', rep:2.0, bump:0.45}));
     totem.position.set(z.x+3, 2.25, z.z-4); scene.add(totem);
     addSphereCol(z.x+3, 2, z.z-4, 0.7);
     scene.add(makeSignpost(z.x+2, z.z+z.r-6, 'Floresta Sombria'));
@@ -1839,7 +2232,7 @@
     scene.add(water);
     scatter('pantano', 16, (x,zz)=>{
       const ch = rnd(3,7);
-      const col = new THREE.Mesh(new THREE.CylinderGeometry(0.7,0.85,ch,8), matStd(0x5a6a63));
+      const col = new THREE.Mesh(new THREE.CylinderGeometry(0.7,0.85,ch,8), matStd(0x99b4a8, {tex:'rocha', rep:2.0, bump:0.5}));
       col.position.set(x, ch/2, zz);
       col.rotation.z = rnd(-0.16,0.16);
       scene.add(col);
@@ -1854,8 +2247,8 @@
     const z = zoneById('calabouco');
     const CX = z.x, CZ = z.z;
     const H = 5.4, T = 1.2, HALF = 22;   // muralha 44x44
-    const stone = matStd(0x1f1c28, {roughness:1, flatShading:true});
-    const stoneDark = matStd(0x14111c, {roughness:1});
+    const stone = matStd(0x514968, {tex:'tijolo', rep:3.0, roughness:1, flatShading:true, bump:0.6});
+    const stoneDark = matStd(0x3a3151, {tex:'laje', rep:12.0, roughness:1, bump:0.5});
 
     // Piso do calabouço
     const floor = new THREE.Mesh(new THREE.BoxGeometry(HALF*2+2, 0.4, HALF*2+2), stoneDark);
@@ -1940,7 +2333,7 @@
     const z = zoneById('pico');
     scatter('pico', 34, (x,zz)=>{
       const h = rnd(3,10), w = rnd(0.8,2.0);
-      pushInst('ice', GEO.ice, matStd(0xa8c6e8, {roughness:.35, metalness:.1, flatShading:true}),
+      pushInst('ice', GEO.ice, matStd(0xa8c6e8, {tex:'neve', rep:1.2, roughness:.35, metalness:.1, flatShading:true, bump:0.3}),
                instMatrix(x, 0, zz, 0, Math.random()*3, 0, w, h, w));
       addSphereCol(x, 1.6, zz, w*0.9);
     });
@@ -1952,10 +2345,10 @@
     const z = zoneById('torre');
     const tower = new THREE.Group();
     const body = new THREE.Mesh(new THREE.CylinderGeometry(4.5,6,26,10),
-                 new THREE.MeshStandardMaterial({color:0x2b2140, roughness:1, flatShading:true}));
+                 matStd(0x634c93, {tex:'arcana', rep:5.0, roughness:1, flatShading:true, bump:0.6}));
     body.position.y = 13; tower.add(body);
     const top = new THREE.Mesh(new THREE.ConeGeometry(6.5,7,10),
-                new THREE.MeshStandardMaterial({color:0x3d2b5c, roughness:.9}));
+                matStd(0x805ac1, {tex:'telha', rep:4.0, roughness:.9, bump:0.6}));
     top.position.y = 29; tower.add(top);
     const orb = new THREE.Mesh(new THREE.SphereGeometry(1.5,16,12),
                 new THREE.MeshBasicMaterial({color:0x9f7cff}));
@@ -1972,7 +2365,7 @@
   // ---- Um Lugar Silencioso: a arena de Mundus, fora do mundo ----
   function buildArena(){
     const A = ARENA;
-    const pisoMat = matStd(0x22242c, {roughness:1});
+    const pisoMat = matStd(0x585e72, {tex:'arena', rep:9.0, roughness:1, bump:0.55});
     const piso = new THREE.Mesh(new THREE.CylinderGeometry(A.r, A.r-3, 1.2, 56), pisoMat);
     piso.position.set(A.x, -0.6, A.z);
     scene.add(piso);
@@ -1987,7 +2380,7 @@
     // Lajes com marcas antigas
     for(let i=0;i<10;i++){
       const a = (i/10)*Math.PI*2;
-      const laje = new THREE.Mesh(new THREE.BoxGeometry(6,0.25,6), matStd(0x1b1d24, {roughness:1}));
+      const laje = new THREE.Mesh(new THREE.BoxGeometry(6,0.25,6), matStd(0x494e61, {tex:'laje', rep:1.6, roughness:1, bump:0.5}));
       laje.position.set(A.x + Math.cos(a)*(A.r-9), 0.06, A.z + Math.sin(a)*(A.r-9));
       laje.rotation.y = a;
       scene.add(laje);
@@ -1997,11 +2390,11 @@
     const R = A.rock;
     const rocha = new THREE.Group();
     const corpo = new THREE.Mesh(new THREE.IcosahedronGeometry(R.r, 1),
-                  matStd(0x3c3a4a, {roughness:1, flatShading:true}));
+                  matStd(0x787494, {tex:'rocha', rep:2.4, roughness:1, flatShading:true, bump:0.6}));
     corpo.position.y = R.r*0.75;
     corpo.scale.set(1, 1.5, 1);
     const lasca = new THREE.Mesh(new THREE.IcosahedronGeometry(R.r*0.55, 0),
-                  matStd(0x33313f, {roughness:1, flatShading:true}));
+                  matStd(0x66627e, {tex:'rocha', rep:1.8, roughness:1, flatShading:true, bump:0.6}));
     lasca.position.set(R.r*0.7, R.r*0.5, -R.r*0.4);
     rocha.add(corpo, lasca);
     rocha.position.set(R.x, 0, R.z);
@@ -2028,13 +2421,13 @@
   // ---- Cemitério Balbúrdioso: campo grande, aberto, cheio de lápides ----
   function buildCemiterio(){
     const C = CEM;
-    const chao = new THREE.Mesh(new THREE.CircleGeometry(C.r, 64), matStd(0x1d2320, {roughness:1}));
+    const chao = new THREE.Mesh(new THREE.CircleGeometry(C.r, 64), matStd(0xb2b498, {tex:'cemiterio', rep:(C.r*2)/CHAO_PASSO, roughness:1, bump:0.4}));
     chao.rotation.x = -Math.PI/2;
     chao.position.set(C.x, 0.03, C.z);
     scene.add(chao);
 
     // Muro baixo em volta, com o portão ao sul
-    const pedra = matStd(0x3a3d38, {roughness:1, flatShading:true});
+    const pedra = matStd(0x6e746a, {tex:'tijolo', rep:1.6, roughness:1, flatShading:true, bump:0.6});
     const n = 64;
     for(let i=0;i<n;i++){
       const a = (i/n)*Math.PI*2;
@@ -2052,13 +2445,13 @@
       pilar.position.set(C.x + sx*6, 3.75, C.z + C.r);
       scene.add(pilar);
       addSphereCol(C.x + sx*6, 2, C.z + C.r, 1.6);
-      const anjo = new THREE.Mesh(new THREE.ConeGeometry(1.1, 2.4, 6), matStd(0x4c4f48,{flatShading:true}));
+      const anjo = new THREE.Mesh(new THREE.ConeGeometry(1.1, 2.4, 6), matStd(0x81867a,{tex:'rocha', rep:1.2, flatShading:true, bump:0.45}));
       anjo.position.set(C.x + sx*6, 8.7, C.z + C.r);
       scene.add(anjo);
     }
 
     // Lápides, cruzes e criptas
-    const lapide = matStd(0x54574f, {roughness:1, flatShading:true});
+    const lapide = matStd(0x8f9486, {tex:'rocha', rep:1.2, roughness:1, flatShading:true, bump:0.5});
     for(let i=0;i<150;i++){
       const a = Math.random()*Math.PI*2;
       const r = 8 + Math.random()*(C.r-14);
@@ -2093,7 +2486,7 @@
       const a = Math.random()*Math.PI*2, r = 14 + Math.random()*(C.r-22);
       const px = C.x + Math.cos(a)*r, pz = C.z + Math.sin(a)*r;
       const t = rnd(0.9, 1.5);
-      pushInst('arvoreMorta', GEO.arvoreMorta, matStd(0x2b2620), instMatrix(px, 0, pz, 0, Math.random()*3, 0, t, t, t));
+      pushInst('arvoreMorta', GEO.arvoreMorta, matStd(0x5f574c, {tex:'madeira', rep:1.6, bump:0.5}), instMatrix(px, 0, pz, 0, Math.random()*3, 0, t, t, t));
       addSphereCol(px, 1.6*t, pz, 0.6*t);
     }
 
@@ -2193,7 +2586,7 @@
   function makeObelisk(z, phaseNum){
     const g = new THREE.Group();
     const ob = new THREE.Mesh(new THREE.CylinderGeometry(0.15,1.2,7,4),
-               new THREE.MeshStandardMaterial({color:0x241a42, roughness:.7, flatShading:true}));
+               matStd(0x563e9e, {tex:'arcana', rep:2.0, roughness:.7, flatShading:true, bump:0.5}));
     ob.position.y = 3.5; g.add(ob);
     const rune = new THREE.Mesh(new THREE.SphereGeometry(0.55,12,10),
                  new THREE.MeshBasicMaterial({color:0x7a5cc4}));
@@ -2840,6 +3233,34 @@ function animarAldric(modelo, t, dt){
               hitRadius:0.62, hitY:1.0, scale:1, counts:false, passive:true },
   };
 
+  // Cada bicho tem a sua superfície. O material nasce novo a cada inimigo
+  // (o piscar de dano mexe na cor dele), mas a imagem é a mesma para todos.
+  const TEX_BICHO = {
+    goblin:   ['pele',   1.2],
+    golem:    ['rocha',  1.6],
+    mundus:   ['rocha',  2.6],
+    zumbi:    ['pele',   1.0],
+    esqueleto:['rocha',  0.9],
+    dummy:    ['pano',   1.2],
+  };
+  function matBicho(typeId, cor, extra){
+    const m = new THREE.MeshStandardMaterial(
+      Object.assign({color:cor, roughness:1, flatShading:true}, extra||{}));
+    const t = TEX_BICHO[typeId];
+    if(t){
+      const mapa = TEX.get(t[0], t[1]);
+      if(mapa){
+        m.map = mapa; m.bumpMap = mapa; m.bumpScale = 0.4;
+        // a textura escurece o tom; a cor sobe para o bicho não virar sombra
+        m.color.multiplyScalar(2.0);
+        m.color.r = Math.min(1, m.color.r);
+        m.color.g = Math.min(1, m.color.g);
+        m.color.b = Math.min(1, m.color.b);
+      }
+    }
+    return m;
+  }
+
   function buildEnemy(typeId, x, z){
     const T = ENEMY_TYPES[typeId];
     const s = T.scale;
@@ -2853,13 +3274,13 @@ function animarAldric(modelo, t, dt){
     }
     let bodyMat = null, headMat = null;
     if(!externo){
-    bodyMat = new THREE.MeshStandardMaterial({color:T.body, roughness:1, flatShading:true});
-    headMat = new THREE.MeshStandardMaterial({color:T.head, roughness:1, flatShading:true});
+    bodyMat = matBicho(typeId, T.body);
+    headMat = matBicho(typeId, T.head);
 
     if(typeId==='zumbi' || typeId==='esqueleto'){
       const morto = typeId==='esqueleto';
-      const mat  = new THREE.MeshStandardMaterial({color:T.body, roughness:1, flatShading:true});
-      const mat2 = new THREE.MeshStandardMaterial({color:T.head, roughness:1, flatShading:true});
+      const mat  = matBicho(typeId, T.body);
+      const mat2 = matBicho(typeId, T.head);
       const s2 = T.scale;
       if(morto){
         // Esqueleto: costelas, crânio e ossos soltos
@@ -2917,8 +3338,8 @@ function animarAldric(modelo, t, dt){
       }
     } else if(typeId==='mundus'){
       // Colosso de pedra: pernas, quadril, tronco largo, ombreiras, braços longos e elmo
-      const rocha  = new THREE.MeshStandardMaterial({color:T.body, roughness:1, flatShading:true});
-      const rocha2 = new THREE.MeshStandardMaterial({color:T.head, roughness:1, flatShading:true});
+      const rocha  = matBicho(typeId, T.body);
+      const rocha2 = matBicho(typeId, T.head);
       const veio   = new THREE.MeshBasicMaterial({color:0xff3a6b});
       const veioFr = new THREE.MeshBasicMaterial({color:0xc36bff});
 
@@ -3102,7 +3523,7 @@ function animarAldric(modelo, t, dt){
     }
 
     if(typeId==='goblin'){
-      const earMat = new THREE.MeshStandardMaterial({color:T.head});
+      const earMat = matBicho(typeId, T.head);
       for(const sx of [-1,1]){
         const ear = new THREE.Mesh(new THREE.ConeGeometry(0.13*s,0.55*s,5), earMat);
         ear.position.set(sx*0.38*s, 1.9*s, 0);
