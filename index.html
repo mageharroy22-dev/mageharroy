@@ -1358,7 +1358,11 @@
     scene.background = new THREE.Color(0x100c1c);
     scene.fog = new THREE.FogExp2(0x554d85, 0.0125);
 
-    camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.05, 600);
+    // O 'longe' tem de alcançar a serra do outro lado do mapa (uns 740 m).
+    // Subir o 'perto' junto mantém a precisão de profundidade melhor do
+    // que era antes — as mãos e o livro são imagem na tela, não 3D, então
+    // não existe nada colado na câmera para cortar.
+    camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.15, 1000);
     camera.rotation.order = 'YXZ';
     camera.position.copy(HOME);
     yaw = START_YAW;
@@ -1917,7 +1921,7 @@
 
   function buildWorld(){
     // Campo aberto: grama por toda parte fora dos biomas
-    const R_CHAO = WORLD_R + 262;         // passa por baixo da serra inteira
+    const R_CHAO = 640;                   // passa por baixo do pico mais distante
     const ground = new THREE.Mesh(new THREE.CircleGeometry(R_CHAO, 72),
                    matStd(0xc3d2ad, {tex:'grama', rep:R_CHAO*2/CHAO_PASSO}));
     ground.rotation.x = -Math.PI/2;
@@ -1966,18 +1970,26 @@
     // Três fileiras. Nenhuma encosta no jogador: de perto um pico vira um
     // paredão escuro, e é justamente o que se quer evitar. Longe, a névoa
     // os transforma em silhueta — que é como serra distante se parece.
+    // O jogador para de andar no raio 178. A conta abaixo põe o PÉ de cada
+    // montanha a partir de 186 — largura incluída — para nenhuma delas entrar
+    // no campo onde se anda. Sem isso dá para atravessar: elas não têm
+    // colisão, e não vale a pena ter: basta ficarem fora de alcance.
+    // 'pe' é a que distância do centro começa o pé da montanha. Como o
+    // jogador para no raio 178, nada aqui entra no campo — e a folga extra
+    // evita o outro extremo: pico grudado na beirada vira parede escura.
     const fileiras = [
-      { raio:[198, 244], alt:[ 9,  22], gordura:[1.1, 2.1], n:72, neve:0    },  // morros
-      { raio:[252, 296], alt:[38,  76], gordura:[0.8, 1.4], n:58, neve:0.12 },  // serra
-      { raio:[308, 386], alt:[74, 142], gordura:[0.7, 1.2], n:44, neve:0.45 },  // cumes ao fundo
+      { pe:[212, 252], alt:[10,  22], gordura:[1.1, 2.0], n:70, neve:0    },  // morros
+      { pe:[252, 306], alt:[32,  62], gordura:[0.8, 1.3], n:56, neve:0.12 },  // serra
+      { pe:[306, 382], alt:[60,  96], gordura:[0.7, 1.0], n:42, neve:0.45 },  // cumes ao fundo
     ];
     fileiras.forEach((fi, idx)=>{
       for(let i=0;i<fi.n;i++){
         const a  = (i/fi.n)*Math.PI*2 + rnd(-0.06, 0.06);
-        const r  = rnd(fi.raio[0], fi.raio[1]);
         const h  = rnd(fi.alt[0],  fi.alt[1]);
         const w  = h * rnd(fi.gordura[0], fi.gordura[1]);   // largura puxada da altura
         const w2 = w * rnd(0.75, 1.25);          // nenhum pico é redondo
+        const wMax = Math.max(w, w2) * 1.2;   // o cone amassado passa um pouco do raio 1
+        const r  = rnd(fi.pe[0], fi.pe[1]) + wMax;   // o pé, e não o centro, é o que se fixa
         const ry = Math.random()*Math.PI*2;
         const x  = Math.cos(a)*r, z = Math.sin(a)*r;
         const base = -h*0.06;                     // enterra o pé, sem vão
