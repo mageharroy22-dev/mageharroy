@@ -728,6 +728,16 @@
             <span class="val" id="cfgVolVal">32%</span>
           </div>
 
+          <div class="cfgRow check">
+            <label for="cfgVoz">Vozes dos personagens <span id="cfgVozInfo" class="val"></span></label>
+            <input type="checkbox" id="cfgVoz" checked>
+          </div>
+          <div class="cfgRow">
+            <label>Ouvir as vozes</label>
+            <button type="button" class="dbtn ghost" id="cfgVozTeste">Testar</button>
+            <span class="val"></span>
+          </div>
+
           <h3>Tela</h3>
           <div class="cfgRow">
             <label for="cfgFov">Campo de visão</label>
@@ -1394,6 +1404,7 @@
     document.addEventListener('pointerlockerror', ()=>{ toast('Mouse não travou aqui — clique na cena para tentar de novo'); });
 
     const t0tex = performance.now();
+    VOZ.iniciar();
     TEX.prepararTudo();
     const msTex = Math.round(performance.now() - t0tex);
 
@@ -3867,6 +3878,15 @@ function animarAldric(modelo, t, dt){
       CFG.radar = radar.checked;
       document.getElementById('radarWrap').style.display = CFG.radar ? '' : 'none';
     });
+
+    const voz = document.getElementById('cfgVoz');
+    if(voz) voz.addEventListener('change', ()=>{
+      VOZ.ligada = voz.checked;
+      if(!VOZ.ligada) VOZ.calar();
+    });
+    const vozTeste = document.getElementById('cfgVozTeste');
+    if(vozTeste) vozTeste.addEventListener('click', ()=> VOZ.testar());
+    VOZ.avisar();
   }
 
   function startGame(){
@@ -3874,6 +3894,7 @@ function animarAldric(modelo, t, dt){
     started = true;
     SFX.init();
     SFX.resume();
+    VOZ.aquecer();
     requestPointerLock();
     toast('Fale com Mestre Aldric [F] · Mesa de Magias à direita');
     ui.instructions.style.display = CFG.dicas ? '' : 'none';
@@ -4200,6 +4221,144 @@ function animarAldric(modelo, t, dt){
     renderDialoguePage();
   }
 
+  // ---------------------------------------------------------------
+  // VOZ DOS PERSONAGENS
+  // Não existe arquivo de áudio: o navegador lê a fala que está na
+  // tela. Duas consequências boas — mudar uma fala muda a voz junto,
+  // e afinar um personagem é mexer em dois números, sem regravar
+  // nada. Se um dia houver gravação para a fala, ela toca no lugar.
+  // ---------------------------------------------------------------
+  const VOZ = {
+    ligada: true,
+    aquecida: false,
+    voz: null,                     // voz base, usada por todo o elenco
+    vozF: null,                    // a mesma fala, em voz feminina, quando houver
+    // Tom e velocidade por personagem. É só isto que separa um do
+    // outro — e é exatamente isto que se mexe para refazer uma voz.
+    perfis: {
+      harroy:     { tom:1.00, vel:1.00 },
+      aldric:     { tom:0.80, vel:0.88 },   // velho, fala devagar
+      arquimedes: { tom:0.90, vel:0.95 },   // firme, de quem guarda a porta
+      vurm:       { tom:1.14, vel:1.06 },   // ermitão, esgoelado
+      tessa:      { tom:1.06, vel:1.12, f:true },   // recadeira, apressada
+      livro:      { tom:0.68, vel:0.78 },   // o grimório, cavernoso
+      narrador:   { tom:0.95, vel:0.96 },
+    },
+    frases: {
+      aldric:     'Pequeno mestre, o grimório escolheu você.',
+      arquimedes: 'Ninguém passa por esta porta sem provar o que sabe.',
+      vurm:       'O que está fazendo aqui? Vá explorar.',
+      tessa:      'Serviço do vale, pago à vista.',
+      livro:      'Não está acabado. O escuro inabitável precisa continuar inexplorado.',
+      harroy:     'Eu ainda não sei o que consigo fazer.',
+    },
+    // Nomes que a Microsoft e o Google usam nas vozes brasileiras. Serve
+    // só para saber qual é a feminina; se não reconhecer nenhuma, o elenco
+    // inteiro fica com a mesma voz, que é o combinado.
+    FEMININAS: /maria|francisca|heloisa|luciana|fernanda|camila|joana|ines|in[êe]s|catarina|vit[óo]ria/i,
+    escolher(){
+      if(!('speechSynthesis' in window)) return null;
+      const todas = speechSynthesis.getVoices() || [];
+      if(!todas.length) return null;
+      const pt = todas.filter(v=>/^pt/i.test(v.lang || ''));
+      const br = pt.filter(v=>/BR/i.test(v.lang || ''));
+      let lista = br.length ? br : pt;
+      if(!lista.length) return null;
+      // Voz instalada na máquina vem primeiro: funciona sem internet.
+      const locais = lista.filter(v=>v.localService);
+      if(locais.length) lista = locais;
+      const fem = lista.filter(v=>this.FEMININAS.test(v.name));
+      const mas = lista.filter(v=>!this.FEMININAS.test(v.name));
+      this.vozF = fem[0] || null;
+      return (mas[0] || lista[0]);
+    },
+    iniciar(){
+      if(!('speechSynthesis' in window)){ this.avisar(); return; }
+      const tentar = ()=>{
+        if(this.voz) return;
+        this.voz = this.escolher();
+        if(this.voz) console.log('[Mage Harroy] voz: ' + this.voz.name + ' (' + this.voz.lang + ')');
+        this.avisar();
+      };
+      tentar();
+      // No Chrome a lista chega depois; no Edge já vem pronta.
+      try{ speechSynthesis.addEventListener('voiceschanged', tentar); }catch(e){}
+      setTimeout(tentar, 1200);
+    },
+    avisar(){
+      const el = document.getElementById('cfgVozInfo');
+      if(!el) return;
+      if(!this.voz){
+        el.textContent = '— nenhuma voz em português instalada neste computador';
+        return;
+      }
+      const curto = (v)=> String(v.name).replace(/^Microsoft\s+/,'').replace(/\s*-\s*Portuguese.*$/,'');
+      el.textContent = '— ' + curto(this.voz) + (this.vozF ? ' e ' + curto(this.vozF) : '');
+    },
+    calar(){
+      if(!('speechSynthesis' in window)) return;
+      try{ speechSynthesis.cancel(); }catch(e){}
+    },
+    // A primeira fala que o Windows sintetiza leva uns 4 segundos para
+    // sair; da segunda em diante, 70 milissegundos. Então no clique de
+    // JOGAR manda uma fala muda, só para acordar o motor.
+    aquecer(){
+      if(this.aquecida || !this.voz || !('speechSynthesis' in window)) return;
+      this.aquecida = true;
+      try{
+        const u = new SpeechSynthesisUtterance('a');
+        u.voice = this.voz; u.lang = this.voz.lang;
+        u.volume = 0; u.rate = 2;
+        speechSynthesis.speak(u);
+      }catch(e){}
+    },
+    falar(texto, quem){
+      this.calar();
+      if(!this.ligada || !this.voz || !texto) return;
+      const limpo = String(texto).replace(/\s+/g, ' ').trim();
+      if(!limpo) return;
+      const p = this.perfis[quem] || this.perfis.narrador;
+      const v = (p.f && this.vozF) ? this.vozF : this.voz;
+      try{
+        const u = new SpeechSynthesisUtterance(limpo);
+        u.voice  = v;
+        u.lang   = v.lang;
+        u.pitch  = p.tom;
+        u.rate   = p.vel;
+        u.volume = Math.min(1, CFG.vol * 2.6);   // acompanha o volume do jogo
+        speechSynthesis.speak(u);
+      }catch(e){}
+    },
+    // Fala uma frase de cada personagem, em fila, para dar para ouvir
+    // e dizer o que corrigir.
+    testar(){
+      this.calar();
+      if(!this.voz){ toast('Nenhuma voz em português foi encontrada neste computador'); return; }
+      const ordem = ['harroy','aldric','arquimedes','vurm','tessa','livro'];
+      let i = 0;
+      const proxima = ()=>{
+        if(i >= ordem.length) return;
+        const quem = ordem[i++];
+        const p = this.perfis[quem] || this.perfis.narrador;
+        const v = (p.f && this.vozF) ? this.vozF : this.voz;
+        const u = new SpeechSynthesisUtterance((FALANTES[quem] ? FALANTES[quem].name + '. ' : '') + this.frases[quem]);
+        u.voice = v; u.lang = v.lang;
+        u.pitch = p.tom; u.rate = p.vel;
+        u.volume = Math.min(1, CFG.vol * 2.6);
+        u.onend = proxima;
+        u.onerror = proxima;
+        try{ speechSynthesis.speak(u); }catch(e){ proxima(); }
+      };
+      proxima();
+    },
+    // Tira as marcas de HTML antes de ler (o chamado do livro usa spans)
+    texto(html){
+      const d = document.createElement('div');
+      d.innerHTML = html;
+      return d.textContent || '';
+    },
+  };
+
   const FALANTES = {
     harroy:     {name:'Harroy',           role:'Você',                                portrait:'🧝‍♂️'},
     arquimedes: {name:'Arquimedes',       role:'O mago que guarda a última porta',    portrait:'🧙‍♂️'},
@@ -4219,8 +4378,10 @@ function animarAldric(modelo, t, dt){
       ui.dName.textContent = f.name || '';
       ui.dRole.textContent = f.role || '';
       ui.dText.textContent = pag.texto;
+      VOZ.falar(pag.texto, pag.quem);
     } else {
       ui.dText.textContent = pag;
+      VOZ.falar(pag, 'narrador');
     }
     ui.dFoot.innerHTML = '';
     const last = st.page >= st.data.pages.length-1;
@@ -4251,6 +4412,7 @@ function animarAldric(modelo, t, dt){
     dialogueOpen = false;
     activeDialogue = null;
     ui.dialogue.classList.remove('show');
+    VOZ.calar();
     requestPointerLock();
   }
 
@@ -4758,6 +4920,7 @@ function animarAldric(modelo, t, dt){
     const pages = callState.pages || CALL_PAGES;
     const last = callState.page >= pages.length - 1;
     ui.callText.innerHTML = pages[callState.page];
+    VOZ.falar(VOZ.texto(pages[callState.page]), 'livro');
     ui.callFoot.innerHTML = '';
     if(!last){
       const b = document.createElement('button');
