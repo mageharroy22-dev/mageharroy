@@ -1405,6 +1405,7 @@
 
     const t0tex = performance.now();
     VOZ.iniciar();
+    VOZ.carregarMapa();
     TEX.prepararTudo();
     const msTex = Math.round(performance.now() - t0tex);
 
@@ -4202,14 +4203,17 @@ function animarAldric(modelo, t, dt){
   }
 
   function openDialogue(npc){
-    openDialogueData({name:npc.def.name, role:npc.def.role, portrait:npc.def.portrait},
+    openDialogueData({name:npc.def.name, role:npc.def.role, portrait:npc.def.portrait,
+                      voz:npc.def.id},
                      dialoguePages(npc));
   }
 
   function openDialogueData(header, data){
     if(dialogueOpen) return;
     dialogueOpen = true;
-    activeDialogue = { data, page:0 };
+    // 'voz' diz de quem é a fala nas páginas que são só texto: sem isto
+    // todo NPC sem diálogo a duas vozes sairia com a voz do narrador.
+    activeDialogue = { data, page:0, voz: header.voz || 'narrador' };
     exitPointerLock();
     ui.interact.classList.remove('show');
     nearNpc = null; nearShop = false; nearNote = false;
@@ -4237,21 +4241,32 @@ function animarAldric(modelo, t, dt){
     // outro — e é exatamente isto que se mexe para refazer uma voz.
     perfis: {
       harroy:     { tom:1.00, vel:1.00 },
-      aldric:     { tom:0.80, vel:0.88 },   // velho, fala devagar
-      arquimedes: { tom:0.90, vel:0.95 },   // firme, de quem guarda a porta
-      vurm:       { tom:1.14, vel:1.06 },   // ermitão, esgoelado
-      tessa:      { tom:1.06, vel:1.12, f:true },   // recadeira, apressada
-      livro:      { tom:0.68, vel:0.78 },   // o grimório, cavernoso
+      aldric:     { tom:0.80, vel:0.88 },            // velho, fala devagar
+      arquimedes: { tom:0.90, vel:0.95 },            // firme, de quem guarda a porta
+      kalarram:   { tom:0.72, vel:0.86 },            // carcereiro, arrasta as palavras
+      vurm:       { tom:1.14, vel:1.06 },            // ermitão, esganiçado
+      runa:       { tom:1.10, vel:1.08, f:true },    // batedora, sempre alerta
+      nerith:     { tom:1.00, vel:0.98, f:true },    // ruinóloga, pesa cada palavra
+      tessa:      { tom:1.06, vel:1.12, f:true },    // recadeira, apressada
+      sentinela:  { tom:0.84, vel:0.74, f:true },    // é pedra: fala devagar
+      livro:      { tom:0.68, vel:0.78 },            // o grimório, cavernoso
+      portal:     { tom:0.80, vel:0.84 },            // não é gente, e não deve soar como
       narrador:   { tom:0.95, vel:0.96 },
     },
-    frases: {
-      aldric:     'Pequeno mestre, o grimório escolheu você.',
-      arquimedes: 'Ninguém passa por esta porta sem provar o que sabe.',
-      vurm:       'O que está fazendo aqui? Vá explorar.',
-      tessa:      'Serviço do vale, pago à vista.',
-      livro:      'Não está acabado. O escuro inabitável precisa continuar inexplorado.',
-      harroy:     'Eu ainda não sei o que consigo fazer.',
-    },
+    // O que o botão Testar fala, na ordem. Serve para você ouvir o elenco
+    // inteiro de uma vez e dizer o que corrigir.
+    elenco: [
+      ['harroy',     'Harroy',              'Eu ainda não sei o que consigo fazer.'],
+      ['aldric',     'Mestre Aldric',       'Pequeno mestre, o grimório escolheu você.'],
+      ['runa',       'Runa, a Batedora',    'A floresta está infestada. Os goblins acampam na clareira ao norte.'],
+      ['nerith',     'Nerith, a Ruinóloga', 'As ruínas do pântano guardam coisas que não deviam ter acordado.'],
+      ['kalarram',   'Kalarram',            'Ninguém entra no meu calabouço e sai do mesmo jeito.'],
+      ['arquimedes', 'Arquimedes',          'Ninguém passa por esta porta sem provar o que sabe.'],
+      ['vurm',       'Vurm, o Ermitão',     'O que está fazendo aqui? Vá explorar.'],
+      ['tessa',      'Tessa, a Recadeira',  'Serviço do vale, pago à vista.'],
+      ['sentinela',  'Sentinela Selada',    'Este caminho ainda não se abriu para você.'],
+      ['livro',      'O Grimório',          'Não está acabado. O escuro inabitável precisa continuar inexplorado.'],
+    ],
     // Nomes que a Microsoft e o Google usam nas vozes brasileiras. Serve
     // só para saber qual é a feminina; se não reconhecer nenhuma, o elenco
     // inteiro fica com a mesma voz, que é o combinado.
@@ -4295,7 +4310,47 @@ function animarAldric(modelo, t, dt){
       const curto = (v)=> String(v.name).replace(/^Microsoft\s+/,'').replace(/\s*-\s*Portuguese.*$/,'');
       el.textContent = '— ' + curto(this.voz) + (this.vozF ? ' e ' + curto(this.vozF) : '');
     },
+    // ---- falas gravadas ----
+    // audio/falas/mapa.json diz qual arquivo corresponde a qual fala. O
+    // mapa viaja junto com os áudios, então o jogo não carrega nenhuma
+    // tabela de dublagem quando não existe dublagem. Sem o arquivo,
+    // tudo cai na voz sintetizada e ninguém sai perdendo.
+    mapa: null,
+    tocando: null,
+    cache: {},
+    chave(t){
+      return String(t).replace(/<[^>]+>/g, ' ')
+        .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+        .toLowerCase().replace(/[^a-z0-9 ]+/g, ' ')
+        .replace(/\s+/g, ' ').trim().slice(0, 48);
+    },
+    carregarMapa(){
+      fetch('audio/falas/mapa.json', {cache:'no-cache'})
+        .then(r=>{ if(!r.ok) throw 0; return r.json(); })
+        .then(m=>{
+          this.mapa = m || {};
+          const n = Object.keys(this.mapa).length;
+          if(n) console.log('[Mage Harroy] falas gravadas: ' + n);
+        })
+        .catch(()=>{ this.mapa = {}; });
+    },
+    arquivoDa(texto){
+      if(!this.mapa) return null;
+      return this.mapa[this.chave(texto)] || null;
+    },
+    tocarArquivo(nome, aoFalhar){
+      const src = 'audio/falas/' + nome;
+      let a = this.cache[src];
+      if(!a){ a = new Audio(src); this.cache[src] = a; }
+      a.volume = Math.min(1, CFG.vol * 2.6);
+      try{ a.currentTime = 0; }catch(e){}
+      a.onerror = ()=>{ this.cache[src] = null; aoFalhar(); };   // arquivo sumiu: usa a voz
+      const pr = a.play();
+      if(pr && pr.catch) pr.catch(()=> aoFalhar());
+      this.tocando = a;
+    },
     calar(){
+      if(this.tocando){ try{ this.tocando.pause(); }catch(e){} this.tocando = null; }
       if(!('speechSynthesis' in window)) return;
       try{ speechSynthesis.cancel(); }catch(e){}
     },
@@ -4314,9 +4369,16 @@ function animarAldric(modelo, t, dt){
     },
     falar(texto, quem){
       this.calar();
-      if(!this.ligada || !this.voz || !texto) return;
+      if(!this.ligada || !texto) return;
       const limpo = String(texto).replace(/\s+/g, ' ').trim();
       if(!limpo) return;
+      // Gravação primeiro; a voz do navegador é só a reserva.
+      const arq = this.arquivoDa(limpo);
+      if(arq){ this.tocarArquivo(arq, ()=> this.sintetizar(limpo, quem)); return; }
+      this.sintetizar(limpo, quem);
+    },
+    sintetizar(limpo, quem){
+      if(!this.ligada || !this.voz || !limpo) return;
       const p = this.perfis[quem] || this.perfis.narrador;
       const v = (p.f && this.vozF) ? this.vozF : this.voz;
       try{
@@ -4334,14 +4396,13 @@ function animarAldric(modelo, t, dt){
     testar(){
       this.calar();
       if(!this.voz){ toast('Nenhuma voz em português foi encontrada neste computador'); return; }
-      const ordem = ['harroy','aldric','arquimedes','vurm','tessa','livro'];
       let i = 0;
       const proxima = ()=>{
-        if(i >= ordem.length) return;
-        const quem = ordem[i++];
+        if(i >= this.elenco.length) return;
+        const [quem, nome, frase] = this.elenco[i++];
         const p = this.perfis[quem] || this.perfis.narrador;
         const v = (p.f && this.vozF) ? this.vozF : this.voz;
-        const u = new SpeechSynthesisUtterance((FALANTES[quem] ? FALANTES[quem].name + '. ' : '') + this.frases[quem]);
+        const u = new SpeechSynthesisUtterance(nome + '. ' + frase);
         u.voice = v; u.lang = v.lang;
         u.pitch = p.tom; u.rate = p.vel;
         u.volume = Math.min(1, CFG.vol * 2.6);
@@ -4381,7 +4442,7 @@ function animarAldric(modelo, t, dt){
       VOZ.falar(pag.texto, pag.quem);
     } else {
       ui.dText.textContent = pag;
-      VOZ.falar(pag, 'narrador');
+      VOZ.falar(pag, st.voz);
     }
     ui.dFoot.innerHTML = '';
     const last = st.page >= st.data.pages.length-1;
@@ -4592,13 +4653,13 @@ function animarAldric(modelo, t, dt){
   function abrirPortal(){
     const q = quests.f4;
     if(q.status === 'done'){
-      openDialogueData({name:'Portal da Torre', role:'A luz não pisca: ela espera', portrait:'🌀'},
+      openDialogueData({name:'Portal da Torre', role:'A luz não pisca: ela espera', portrait:'🌀', voz:'portal'},
         { pages:['O portal continua aberto, mas do outro lado só há silêncio e poeira.',
                  'O que restava de Aldric não está mais lá. A segunda metade do caminho ainda não se abriu.'],
           actions:[{label:'Encerrar', fn:closeDialogue}] });
       return;
     }
-    openDialogueData({name:'Portal da Torre', role:'Missão: Salve Aldric', portrait:'🌀'},
+    openDialogueData({name:'Portal da Torre', role:'Missão: Salve Aldric', portrait:'🌀', voz:'portal'},
       { pages:[
           'A luz roxa não aquece. Ela puxa — devagar, como quem já sabe que você vai entrar.',
           'Do outro lado há um lugar sem vento, sem bicho, sem eco. Um lugar silencioso.',
@@ -5066,7 +5127,7 @@ function animarAldric(modelo, t, dt){
 
   function readNote(){
     openDialogueData(
-      { name:'Bilhete de Mestre Aldric', role:'Escrito às pressas, sobre a mesa', portrait:'📜' },
+      { name:'Bilhete de Mestre Aldric', role:'Escrito às pressas, sobre a mesa', portrait:'📜', voz:'aldric' },
       { pages:[
           '«Se você está lendo isto, o livro chamou e eu atendi. Não foi escolha — foi a mesma coisa que aconteceu com você naquela primeira manhã.»',
           '«A Lua, o Sol e a Sombra eram as três fechaduras. Você abriu as três. Sinto muito: eu deveria ter dito antes.»',
