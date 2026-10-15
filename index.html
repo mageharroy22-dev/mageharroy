@@ -555,6 +555,50 @@
   }
   #bossFill{height:100%;width:100%;background:linear-gradient(90deg,#7a1230,#ff3a6b);transition:width .15s linear;}
   #bossHp{font-size:12px;color:var(--parchment);opacity:.85;margin-top:4px;letter-spacing:.06em;}
+  /* Barra de carga da magia (segurar o botao direito) */
+  #cargaWrap{
+    position:absolute;top:calc(50% + 52px);left:50%;transform:translateX(-50%);z-index:12;
+    width:224px;display:none;pointer-events:none;text-align:center;
+  }
+  #cargaWrap.show{display:block;}
+  #cargaShell{
+    height:9px;border:1px solid rgba(190,160,255,.6);border-radius:6px;
+    background:rgba(16,10,28,.8);overflow:hidden;box-shadow:0 0 12px rgba(0,0,0,.6);
+  }
+  #cargaFill{height:100%;width:0%;background:linear-gradient(90deg,#5b4a9e,#b9a7ff);}
+  #cargaTxt{
+    margin-top:5px;font-family:'Cinzel',serif;font-size:11px;letter-spacing:.1em;
+    color:#cbbcf0;text-transform:uppercase;text-shadow:0 2px 8px #000;
+  }
+  #cargaWrap.cheia #cargaFill{background:linear-gradient(90deg,#ffd76a,#fff3c2);}
+  #cargaWrap.cheia #cargaShell{border-color:#ffd76a;box-shadow:0 0 20px rgba(255,215,106,.6);}
+  #cargaWrap.cheia #cargaTxt{color:#ffe9a8;}
+  #cargaWrap.quebrada #cargaShell{border-color:#ff5a7a;}
+  #cargaWrap.quebrada #cargaFill{background:#ff5a7a;}
+  #cargaWrap.quebrada #cargaTxt{color:#ff9bb0;}
+
+  /* O grito do Escuro */
+  #grito{
+    position:absolute;inset:0;z-index:34;display:none;align-items:center;justify-content:center;
+    pointer-events:none;
+    background:radial-gradient(ellipse at center, rgba(44,0,10,.5) 0%, rgba(4,0,2,.94) 82%);
+  }
+  #grito.show{display:flex;animation:gritoTremor .085s steps(2) infinite;}
+  #grito span{
+    font-family:'Cinzel',serif;font-weight:700;color:#ff1f3a;text-align:center;padding:0 18px;
+    font-size:clamp(32px,7.2vw,94px);line-height:1.08;letter-spacing:.05em;
+    text-shadow:0 0 30px rgba(255,20,50,.95),0 0 76px rgba(255,0,30,.6),0 6px 0 #2a0008;
+  }
+  @keyframes gritoTremor{
+    0%{transform:translate(0,0);} 50%{transform:translate(5px,-4px);} 100%{transform:translate(-4px,4px);}
+  }
+
+  /* Cegueira do golpe de escuridao */
+  #cego{
+    position:absolute;inset:0;z-index:15;pointer-events:none;opacity:0;background:#000;
+    transition:opacity .45s ease;
+  }
+
   #bossWarn{
     position:absolute;top:30%;left:50%;transform:translateX(-50%);z-index:13;
     font-family:'Cinzel',serif;font-size:clamp(16px,2.4vw,24px);letter-spacing:.14em;
@@ -668,6 +712,10 @@
     <div id="bossWarn"></div>
     <div id="contagem"></div>
     <div id="pilha"></div>
+    <div id="cargaWrap">
+      <div id="cargaShell"><div id="cargaFill"></div></div>
+      <div id="cargaTxt">Carregando</div>
+    </div>
 
     <div id="bossHud">
       <div id="bossName">Mundus</div>
@@ -676,7 +724,7 @@
     </div>
 
     <div id="crosshair"></div>
-    <div id="instructions">WASD mover · CLIQUE conjurar · F interagir · E grimório · Q runas · M mapa</div>
+    <div id="instructions">WASD mover · CLIQUE conjurar · SEGURAR BOTÃO DIREITO carregar (parado) · F interagir · E grimório · Q runas · M mapa</div>
     <div id="activeSpell"></div>
     <div id="interact"></div>
 
@@ -688,6 +736,8 @@
 
   <div id="bookGlowFX"></div>
   <div id="vignette"></div>
+  <div id="cego"></div>
+  <div id="grito"><span></span></div>
 
   <div id="toast"></div>
 
@@ -767,6 +817,7 @@
             <li><b>MOVER</b> — W A S D · Shift corre</li>
             <li><b>OLHAR</b> — mouse · <b>DESTRAVAR</b> — Ctrl</li>
             <li><b>CONJURAR</b> — clique esquerdo</li>
+            <li><b>CARREGAR A MAGIA</b> — segurar o botão direito, <b>parado</b></li>
             <li><b>TROCAR MAGIA</b> — teclas 1 a 9</li>
             <li><b>INTERAGIR / FALAR / COMPRAR</b> — tecla F</li>
             <li><b>GRIMÓRIO DE COMBINAÇÃO</b> — tecla E</li>
@@ -780,6 +831,7 @@
             <li>No grimório [E] dá para combinar duas magias que você já tem.</li>
             <li>Só uma runa pode ficar em uso por vez — troque em [Q].</li>
             <li>Cada missão concluída vira um checkpoint de renascimento.</li>
+            <li>Magia carregada bate o dobro — e há porta no mundo que só abre assim.</li>
           </ul>
 
           <h3>Fases</h3>
@@ -1032,6 +1084,26 @@
       this.burst({f:s.nf, f2:s.nf2, filter:s.filter, q:s.q, dur:0.28, gain:0.13});
     },
     impact(){ this.burst({f:1800, f2:220, filter:'lowpass', dur:0.16, gain:0.14}); },
+    carga(){ this.tone({f:160, f2:520, type:'sine', dur:1.5, gain:0.07}); },
+    cargaCheia(){
+      this.tone({f:620, f2:1240, type:'sine', dur:0.18, gain:0.12});
+      this.tone({f:930, f2:1860, type:'sine', dur:0.22, gain:0.09, delay:0.08});
+    },
+    cargaQuebra(){ this.tone({f:300, f2:90, type:'square', dur:0.14, gain:0.08}); },
+    pedraCede(){
+      this.tone({f:90, f2:40, type:'square', dur:1.3, gain:0.17});
+      this.burst({f:600, f2:120, filter:'lowpass', dur:1.5, gain:0.15});
+    },
+    pedraFirme(){ this.burst({f:380, f2:140, filter:'lowpass', dur:0.22, gain:0.13}); },
+    grito(){
+      this.tone({f:140, f2:58, type:'sawtooth', dur:1.9, gain:0.2});
+      this.burst({f:1800, f2:160, filter:'lowpass', dur:2.1, gain:0.18});
+    },
+    ceifaCarga(){ this.tone({f:70, f2:230, type:'sawtooth', dur:3.0, gain:0.11}); },
+    ceifaGolpe(){
+      this.tone({f:60, f2:26, type:'square', dur:1.2, gain:0.2});
+      this.burst({f:300, f2:50, filter:'lowpass', dur:1.4, gain:0.18});
+    },
     crit(){
       this.tone({f:880, f2:1600, type:'square', dur:0.10, gain:0.13});
       this.burst({f:4200, f2:900, filter:'bandpass', q:2, dur:0.16, gain:0.12});
@@ -1206,7 +1278,7 @@
   let learnedSpells = ['agua'];   // o jogo começa só com Água
   let activeSpellId = 'agua';
   let money = 0;
-  const mortes = { goblin:0, golem:0, sombra:0, zumbi:0, esqueleto:0, mundus:0 };
+  const mortes = { goblin:0, golem:0, sombra:0, zumbi:0, esqueleto:0, mundus:0, ceifador:0 };
 
   // Missões secretas do ermitão: cumprem-se sozinhas, só falta ir buscar
   const SEGREDOS = [
@@ -1344,6 +1416,22 @@
   let mundus = null, runaDrop = null, nearDrop = false, nearPortal = false;
   let rockMesh = null, rockCol = null, rockMove = null;
   const PORTAL_POS = { x:-64, z:-118 };
+
+  // ---- O Escuro Inabitavel: a montanha fechada e a camara la dentro ----
+  // A montanha fica a sudoeste, dentro do limite onde o jogador anda. A porta
+  // encara o centro do mundo; so o Eclipse carregado faz a pedra ceder.
+  const ESC = {
+    mx:-118, mz:112,                 // centro da montanha
+    raio:44, alt:56,
+    ang:Math.atan2(118, -112),       // da montanha para o centro do mundo
+    pd:22,                           // distancia do centro ate a fachada
+    porta:null, portaCol:null, aberta:false, anim:0,
+    portal:null, luzPortal:null, avisoPedra:0,
+    cx:0, cz:-520, cr:40,            // camara dentro da montanha
+    entrada:{x:0, z:-492}, boss:{x:0, z:-548},
+  };
+  let inEscuro = false, nearPortaEscuro = false, nearPortalEscuro = false;
+  let ceifador = null, cegoAte = 0, gritoTimer = 0;
   function activeQuest(){ return Object.values(quests).find(q=>q.status==='active'||q.status==='ready') || null; }
 
   // ===============================================================
@@ -1357,7 +1445,8 @@
      'phaseOverlay','radar','compass','instructions','radarLabel',
      'moneyVal','shopPanel','shopList','shopMoney','crit','items',
      'callOverlay','callText','callFoot','callBook',
-     'bossHud','bossFill','bossHp','bossWarn','runePanel','runeList','contagem','pilha','fusaoPanel','fusaoList','fusaoMoney']
+     'bossHud','bossFill','bossHp','bossWarn','runePanel','runeList','contagem','pilha','fusaoPanel','fusaoList','fusaoMoney',
+     'cargaWrap','cargaFill','cargaTxt','cego','grito']
       .forEach(id => { ui[id] = document.getElementById(id); });
     ui.radarCtx = ui.radar.getContext('2d');
   }
@@ -1400,6 +1489,9 @@
 
     window.addEventListener('resize', onResize);
     canvas.addEventListener('mousedown', onMouseDown);
+    window.addEventListener('mouseup', onMouseUp);
+    canvas.addEventListener('contextmenu', e=>e.preventDefault());
+    window.addEventListener('blur', ()=>{ if(CARGA.ativa) CARGA.quebrar(null); });
     window.addEventListener('mousemove', onMouseMove);
     window.addEventListener('keydown', onKeyDown);
     window.addEventListener('keyup', onKeyUp);
@@ -1463,7 +1555,8 @@
   // ===============================================================
   // 7. CONSTRUÇÃO DO MUNDO
   // ===============================================================
-  function addSphereCol(x,y,z,r){ spheres.push({x,y,z,r}); }
+  function addSphereCol(x,y,z,r){ const c={x,y,z,r}; spheres.push(c); return c; }
+  function tirarCol(c){ const i = spheres.indexOf(c); if(i>=0) spheres.splice(i,1); }
   function addBoxCol(cx,cy,cz,sx,sy,sz){
     boxes.push({minx:cx-sx/2, maxx:cx+sx/2, miny:cy-sy/2, maxy:cy+sy/2, minz:cz-sz/2, maxz:cz+sz/2});
   }
@@ -1967,6 +2060,8 @@
     loteAtual='arena';     buildArena();      flushInstances();
     loteAtual='cemiterio'; buildCemiterio();  flushInstances();
     buildPortal();
+    loteAtual='escuro';    buildEscuro();     flushInstances();
+    buildCamaraEscuro();
     buildMotes();
 
     flushInstances();
@@ -2030,7 +2125,7 @@
     ],
     // A arena do Mundus e o cemitério são cenas escritas, com a própria
     // atmosfera. Lá o relógio para: amanhecer no meio da luta estragaria.
-    travado(){ return inArena || inCemiterio; },
+    travado(){ return inArena || inCemiterio || inEscuro; },
     fase(){
       const h = this.t;
       if(h < 0.22 || h >= 0.86) return 'noite';
@@ -2327,6 +2422,26 @@
     tex.anisotropy = 4;
     const mat = new THREE.MeshBasicMaterial({map:tex, transparent:true, depthTest:true});
     return new THREE.Mesh(new THREE.PlaneGeometry(1,1), mat);
+  }
+
+  // Placa de madeira com varias linhas de texto
+  function makePlacaTexto(linhas, w, h, fg, bg){
+    const c = document.createElement('canvas');
+    c.width = w; c.height = h;
+    const x = c.getContext('2d');
+    x.fillStyle = bg; x.fillRect(0,0,w,h);
+    x.strokeStyle = '#c9a44c'; x.lineWidth = 7; x.strokeRect(4,4,w-8,h-8);
+    x.fillStyle = fg;
+    x.textAlign = 'center'; x.textBaseline = 'middle';
+    const n = linhas.length;
+    const tam = Math.floor(h / (n * 1.75));
+    x.font = 'bold ' + tam + 'px Georgia, serif';
+    const passo = h / (n + 1);
+    linhas.forEach((l, i)=> x.fillText(l, w/2, passo*(i+1)));
+    const tex = new THREE.CanvasTexture(c);
+    tex.anisotropy = 4;
+    return new THREE.Mesh(new THREE.PlaneGeometry(1,1),
+           new THREE.MeshBasicMaterial({map:tex, transparent:true}));
   }
 
   // ---- Decoração por zona ---------------------------------------------
@@ -2986,6 +3101,532 @@
     portalMesh.userData.veu = veu;
   }
   let portalMesh = null;
+
+  // ===============================================================
+  // O ESCURO INABITÁVEL
+  // Uma montanha fechada a sudoeste. Na frente, uma porta de pedra e
+  // uma placa: só quem tem a lua e o sol passa — e só carregado. O
+  // Eclipse carregado é a única coisa que faz a pedra ceder.
+  // ===============================================================
+  function escLocal(lx, ly, lz){
+    const c = Math.cos(ESC.ang), sn = Math.sin(ESC.ang);
+    return { x: ESC.mx + lx*c + lz*sn, y: ly, z: ESC.mz - lx*sn + lz*c };
+  }
+
+  function buildEscuro(){
+    const g = new THREE.Group();
+    g.position.set(ESC.mx, 0, ESC.mz);
+    g.rotation.y = ESC.ang;
+
+    const rochaEsc  = matStd(0x4b4356, {tex:'rocha', rep:9, flatShading:true, bump:0.65});
+    const rochaFace = matStd(0x3c3646, {tex:'rocha', rep:3.2, flatShading:true, bump:0.6});
+    const rochaBat  = matStd(0x2b2634, {tex:'rocha', rep:2.0, flatShading:true, bump:0.5});
+    const matLaje   = matStd(0x56506a, {tex:'rocha', rep:1.6, flatShading:true, bump:0.55});
+
+    // --- O corpo da montanha e as corcovas de trás ---
+    const corpo = new THREE.Mesh(GEO.montanha, rochaEsc);
+    corpo.scale.set(ESC.raio, ESC.alt, ESC.raio*0.95);
+    g.add(corpo);
+    for(const [lx, lz, r, h] of [[-27, -20, 20, 32], [29, -24, 18, 26], [3, -34, 15, 21]]){
+      const m = new THREE.Mesh(GEO.montanha, rochaEsc);
+      m.position.set(lx, 0, lz);
+      m.scale.set(r, h, r*0.9);
+      g.add(m);
+    }
+
+    // --- A fenda: um corredor de rocha que entra até a fachada ---
+    // Sem ela a parede ficaria plantada no campo, com a montanha escondida.
+    const PD = ESC.pd;
+    const NF = 11;
+    for(const sx of [-1, 1]){
+      for(let i=0;i<NF;i++){
+        const lz = PD + 2.5 + i*2.9;
+        const alt = 31 - i*1.9 + Math.random()*3;
+        const r = 6.2 + Math.random()*1.6;
+        const m = new THREE.Mesh(GEO.montanha, rochaEsc);
+        m.position.set(sx*(13.6 + i*0.85), 0, lz);
+        m.scale.set(r, Math.max(7, alt), r*0.95);
+        m.rotation.y = Math.random()*6;
+        g.add(m);
+        const w = escLocal(sx*(13.6 + i*0.85), 1.2, lz);
+        addSphereCol(w.x, w.y, w.z, 5.6);
+      }
+    }
+    // o chão de pedra da fenda
+    const trilha = new THREE.Mesh(new THREE.PlaneGeometry(27, 36),
+                   matStd(0x5a5466, {tex:'rocha', rep:7, bump:0.6}));
+    trilha.rotation.x = -Math.PI/2;
+    trilha.position.set(0, 0.04, PD + 17);
+    g.add(trilha);
+
+    // --- A fachada encravada no fundo da fenda ---
+    const parede = new THREE.Mesh(new THREE.BoxGeometry(27, 26, 7), rochaFace);
+    parede.position.set(0, 13, PD);
+    g.add(parede);
+    for(const sx of [-1, 1]){
+      const col = new THREE.Mesh(new THREE.BoxGeometry(1.5, 10.4, 1.6), rochaBat);
+      col.position.set(sx*3.9, 5.2, PD + 3.3);
+      g.add(col);
+    }
+    const verga = new THREE.Mesh(new THREE.BoxGeometry(10.2, 1.5, 1.8), rochaBat);
+    verga.position.set(0, 10.2, PD + 3.3);
+    g.add(verga);
+
+    // --- O vão escuro atrás da porta ---
+    const vao = new THREE.Mesh(new THREE.BoxGeometry(6.4, 9.0, 3.0),
+                new THREE.MeshBasicMaterial({color:0x05030a}));
+    vao.position.set(0, 4.5, PD + 2.0);
+    g.add(vao);
+
+    // --- A porta: a laje com o sol e a lua ---
+    const porta = new THREE.Group();
+    const laje = new THREE.Mesh(new THREE.BoxGeometry(6.0, 8.6, 1.3), matLaje);
+    laje.position.y = 4.3;
+    porta.add(laje);
+    // sol em cima
+    const sol = new THREE.Mesh(new THREE.TorusGeometry(0.95, 0.17, 8, 20),
+                new THREE.MeshBasicMaterial({color:0x8a6d22}));
+    sol.position.set(0, 6.5, 0.72);
+    porta.add(sol);
+    for(let i=0;i<10;i++){
+      const a = (i/10)*Math.PI*2;
+      const raio = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.62, 0.12),
+                   new THREE.MeshBasicMaterial({color:0x8a6d22}));
+      raio.position.set(Math.cos(a)*1.45, 6.5 + Math.sin(a)*1.45, 0.72);
+      raio.rotation.z = -a + Math.PI/2;
+      porta.add(raio);
+    }
+    // lua embaixo: o disco e a mordida, que usa a pedra da própria porta
+    const luaA = new THREE.Mesh(new THREE.CircleGeometry(1.15, 24),
+                 new THREE.MeshBasicMaterial({color:0xcfc6ec}));
+    luaA.position.set(0, 2.3, 0.70);
+    const luaB = new THREE.Mesh(new THREE.CircleGeometry(0.96, 24), matLaje);
+    luaB.position.set(0.62, 2.36, 0.74);
+    porta.add(luaA, luaB);
+    porta.position.set(0, 0, PD + 3.1);
+    g.add(porta);
+    ESC.porta = porta;
+
+    // --- A placa, fincada ao lado da porta ---
+    const mad = matDec('madEsc');
+    for(const sx of [-1, 1]){
+      const poste = new THREE.Mesh(new THREE.BoxGeometry(0.22, 3.4, 0.22), mad);
+      poste.position.set(6.6 + sx*1.9, 1.7, PD + 6.2);
+      g.add(poste);
+    }
+    const tabua = new THREE.Mesh(new THREE.BoxGeometry(4.6, 2.3, 0.16), mad);
+    tabua.position.set(6.6, 2.9, PD + 6.2);
+    tabua.rotation.y = -0.34;
+    g.add(tabua);
+    const texto = makePlacaTexto(
+      ['SÓ QUEM OBTEVE', 'A LUA E O SOL', 'PODERÁ PASSAR', 'CARREGADO'],
+      512, 320, '#e8d9a8', 'rgba(26,18,10,.94)');
+    texto.scale.set(4.3, 2.15, 1);
+    texto.position.set(6.6, 2.9, PD + 6.32);
+    texto.rotation.y = -0.34;
+    g.add(texto);
+
+    const tocha = new THREE.PointLight(0xffb45a, 1.3, 26);
+    tocha.position.set(4.6, 4.6, PD + 6.6);
+    g.add(tocha);
+    ESC.tocha = tocha;
+
+    scene.add(g);
+    ESC.grupo = g;
+
+    // --- Colisão em volta do cone, com o rasgo da fenda ---
+    const passo = Math.PI*2/34;
+    for(let i=0;i<34;i++){
+      let a = i*passo;
+      if(a > Math.PI) a -= Math.PI*2;
+      if(Math.abs(a) < 0.34) continue;
+      const w = escLocal(Math.sin(a)*(ESC.raio + 6), 1.2, Math.cos(a)*(ESC.raio + 6));
+      addSphereCol(w.x, w.y, w.z, 7);
+    }
+    // a parede dos dois lados do vão
+    for(const sx of [-1, 1]){
+      for(let i=0;i<3;i++){
+        const w = escLocal(sx*(5.2 + i*3.6), 1.2, PD + 2.8);
+        addSphereCol(w.x, w.y, w.z, 3.4);
+      }
+    }
+    // a porta: sai da lista quando a pedra cede
+    ESC.portaCol = [];
+    for(const lx of [-2.0, 0, 2.0]){
+      const w = escLocal(lx, 1.2, PD + 4.0);
+      ESC.portaCol.push(addSphereCol(w.x, w.y, w.z, 2.4));
+    }
+    ESC.portaMundo = escLocal(0, 4.3, PD + 3.8);
+    ESC.placaMundo = escLocal(6.6, 2.9, PD + 7.0);
+  }
+
+  // ---- A câmara lá dentro: só se chega por portal ----
+  function buildCamaraEscuro(){
+    const g = new THREE.Group();
+    g.position.set(ESC.cx, 0, ESC.cz);
+
+    const piso = new THREE.Mesh(new THREE.CircleGeometry(ESC.cr + 6, 54),
+                 matStd(0x3a3446, {tex:'rocha', rep:(ESC.cr+6)*2/6, bump:0.6}));
+    piso.rotation.x = -Math.PI/2;
+    piso.position.y = 0.02;
+    g.add(piso);
+
+    // a abóbada: uma esfera vista por dentro
+    const abobada = new THREE.Mesh(new THREE.SphereGeometry(ESC.cr + 8, 26, 18),
+                    new THREE.MeshStandardMaterial({color:0x120e1a, roughness:1, flatShading:true,
+                                                    side:THREE.BackSide}));
+    abobada.position.y = 2;
+    abobada.scale.y = 0.62;
+    g.add(abobada);
+
+    const rocha = matStd(0x443d52, {tex:'rocha', rep:2.2, flatShading:true, bump:0.6});
+
+    // paredão em volta
+    for(let i=0;i<34;i++){
+      const a = (i/34)*Math.PI*2;
+      const r = ESC.cr + 2.2;
+      const m = new THREE.Mesh(GEO.montanha, rocha);
+      m.position.set(Math.cos(a)*r, 0, Math.sin(a)*r);
+      m.scale.set(6 + Math.random()*3, 13 + Math.random()*9, 6 + Math.random()*3);
+      m.rotation.y = Math.random()*6;
+      g.add(m);
+    }
+
+    // seis pilares: dá para usar de barreira, mas o escuro contorna
+    for(let i=0;i<6;i++){
+      const a = (i/6)*Math.PI*2 + 0.4;
+      const r = ESC.cr * 0.56;
+      const px = Math.cos(a)*r, pz = Math.sin(a)*r;
+      const pil = new THREE.Mesh(new THREE.CylinderGeometry(1.5, 2.1, 15, 7), rocha);
+      pil.position.set(px, 7.5, pz);
+      g.add(pil);
+      addSphereCol(ESC.cx + px, 1.2, ESC.cz + pz, 2.6);
+    }
+
+    // brasas no chão: a única luz do lugar, e bem pouca
+    for(let i=0;i<3;i++){
+      const a = (i/3)*Math.PI*2 + 1.1;
+      const r = ESC.cr * 0.82;
+      const px = Math.cos(a)*r, pz = Math.sin(a)*r;
+      const brasa = new THREE.Mesh(new THREE.SphereGeometry(0.45, 10, 8),
+                    new THREE.MeshBasicMaterial({color:0x8a2335}));
+      brasa.position.set(px, 0.45, pz);
+      const lz2 = new THREE.PointLight(0x7a1f36, 0.75, 26);
+      lz2.position.set(px, 2.2, pz);
+      g.add(brasa, lz2);
+    }
+    // uma luz fria de cima, fraca, só para o vulto da Morte ter contorno
+    const alto = new THREE.PointLight(0x5a6a9a, 0.85, 90);
+    alto.position.set(0, 26, 0);
+    g.add(alto);
+
+    // o portal de volta, na boca da câmara
+    const volta = new THREE.Group();
+    const aro2 = new THREE.Mesh(new THREE.TorusGeometry(2.6, 0.4, 10, 26),
+                 new THREE.MeshBasicMaterial({color:0x7a2fd6}));
+    aro2.position.y = 2.9;
+    const veu2 = new THREE.Mesh(new THREE.CircleGeometry(2.45, 24),
+                 new THREE.MeshBasicMaterial({color:0x1a0730, transparent:true, opacity:.85,
+                                              side:THREE.DoubleSide}));
+    veu2.position.y = 2.9;
+    const pl2 = new THREE.PointLight(0x9b4bff, 1.4, 24);
+    pl2.position.y = 2.9;
+    volta.add(aro2, veu2, pl2);
+    volta.position.set(ESC.entrada.x - ESC.cx, 0, ESC.entrada.z - ESC.cz);
+    volta.rotation.y = Math.PI;
+    g.add(volta);
+    ESC.voltaMesh = volta;
+
+    scene.add(g);
+    ESC.camara = g;
+
+    // o chefe, guardado e invisível até a porta abrir
+    ceifador = buildEnemy('ceifador', ESC.boss.x, ESC.boss.z);
+    ceifador.alive = false;
+    ceifador.noRespawn = true;
+    ceifador.respawnTimer = 0;
+    ceifador.group.visible = false;
+    ceifador.barGroup.visible = false;
+  }
+
+  // ---- O portal da entrada, do lado de fora, atrás da porta ----
+  function acenderPortalEscuro(){
+    if(ESC.portal) return;
+    const g = new THREE.Group();
+    const aro = new THREE.Mesh(new THREE.TorusGeometry(2.4, 0.38, 10, 26),
+                new THREE.MeshBasicMaterial({color:0x8a2fd6}));
+    aro.position.y = 2.7;
+    const veu = new THREE.Mesh(new THREE.CircleGeometry(2.25, 24),
+                new THREE.MeshBasicMaterial({color:0x14062a, transparent:true, opacity:.88,
+                                             side:THREE.DoubleSide}));
+    veu.position.y = 2.7;
+    const pl = new THREE.PointLight(0x9b4bff, 1.45, 26);
+    pl.position.y = 2.7;
+    g.add(aro, veu, pl);
+    const w = escLocal(0, 0, ESC.pd + 8.4);
+    g.position.set(w.x, 0, w.z);
+    g.rotation.y = ESC.ang;
+    scene.add(g);
+    ESC.portal = g;
+    ESC.portalAro = aro;
+    ESC.portalLuz = pl;
+    ESC.portalMundo = w;
+  }
+
+  // ---- A pedra cede ----
+  function abrirPortaEscuro(){
+    if(ESC.aberta) return;
+    ESC.aberta = true;
+    ESC.anim = 2.6;
+    (ESC.portaCol || []).forEach(tirarCol);
+    ESC.portaCol = [];
+    SFX.pedraCede();
+    acenderPortalEscuro();
+    toast('A pedra cedeu. O Escuro Inabitável está aberto.');
+    if(ESC.tocha){ ESC.tocha.color.setHex(0x9b4bff); ESC.tocha.intensity = 0.9; }
+  }
+
+  function lerPlacaEscuro(){
+    const temLua = learnedSpells.includes('lunar');
+    const temSol = learnedSpells.includes('solar');
+    const temEclipse = learnedSpells.includes('lunar+solar');
+    let aviso;
+    if(temEclipse) aviso = 'Você tem o Eclipse. Equipe-o, fique parado e segure o botão direito até a barra encher.';
+    else if(temLua && temSol) aviso = 'Você tem a Lua e o Sol — junte os dois no Grimório [E] e volte com o Eclipse.';
+    else aviso = 'Falta a ' + (!temLua && !temSol ? 'Lua e o Sol' : (!temLua ? 'Lua' : 'Sol')) + '. Sem os dois não há Eclipse.';
+    toast('«SÓ QUEM OBTEVE A LUA E O SOL PODERÁ PASSAR CARREGADO» — ' + aviso);
+    VOZ.falar('Só quem obteve a lua e o sol poderá passar carregado.', 'livro');
+  }
+
+  function tiroNaPortaEscuro(pr){
+    if(ESC.aberta || !ESC.portaMundo) return false;
+    const pm = ESC.portaMundo;
+    const dx = pr.mesh.position.x - pm.x;
+    const dy = pr.mesh.position.y - pm.y;
+    const dz = pr.mesh.position.z - pm.z;
+    if(dx*dx + dz*dz > 25 || Math.abs(dy) > 5.2) return false;
+    spawnHitBurst(pr.mesh.position.clone(), pr.color);
+    if(pr.carregada && pr.spellId === 'lunar+solar'){
+      abrirPortaEscuro();
+    } else {
+      SFX.pedraFirme();
+      const agora = performance.now();
+      if(agora - ESC.avisoPedra > 1800){
+        ESC.avisoPedra = agora;
+        toast(pr.carregada ? 'A pedra não reconhece essa magia — leia a placa'
+                           : 'A pedra não cede com a magia solta — ela precisa vir carregada');
+      }
+    }
+    return true;
+  }
+
+  // ---- Tudo o que o Escuro faz a cada quadro ----
+  function atualizarEscuro(dt){
+    // a porta descendo para dentro do chão
+    if(ESC.anim > 0 && ESC.porta){
+      ESC.anim = Math.max(0, ESC.anim - dt);
+      const k = 1 - ESC.anim/2.6;
+      ESC.porta.position.y = -9.2 * (k*k);
+      if(ESC.anim === 0) ESC.porta.visible = false;
+    }
+    // o portal respira
+    if(ESC.portalAro){
+      ESC.portalAro.rotation.z += dt*0.8;
+      if(ESC.portalLuz) ESC.portalLuz.intensity = 1.7 + Math.sin(performance.now()*0.003)*0.5;
+    }
+    if(ESC.voltaMesh) ESC.voltaMesh.rotation.y += dt*0.25;
+
+    // a cegueira do golpe de escuridão
+    if(cegoAte > 0){
+      cegoAte -= dt;
+      if(cegoAte <= 0){
+        cegoAte = 0;
+        if(ui.cego) ui.cego.style.opacity = '0';
+      }
+    }
+    // a névoa da câmara
+    if(inEscuro) CICLO.fogBase = 0x0a0612;
+  }
+
+  // ---- Entrar e sair da câmara ----
+  function entrarEscuro(){
+    inEscuro = true;
+    nearPortalEscuro = false;
+    ui.interact.classList.remove('show');
+    SFX.portal();
+    startCallEscuro();
+  }
+
+  function sairEscuro(){
+    inEscuro = false;
+    cegoAte = 0;
+    if(ui.cego) ui.cego.style.opacity = '0';
+    ui.bossHud.classList.remove('show');
+    ui.bossWarn.classList.remove('show');
+    ui.quest.classList.remove('locked');
+    const w = ESC.portalMundo || escLocal(0, 0, 36);
+    const fora = escLocal(0, 0, 38);
+    camera.position.set(fora.x, 1.7, fora.z);
+    yaw = ESC.ang + Math.PI; pitch = 0;
+    camera.rotation.set(0, yaw, 0);
+    currentZone = null;
+  }
+
+  // ---- A lembrança, o grito e o chefe ----
+  const ESCURO_PAGES = [
+    'A travessia não dói. O que dói é o que vem junto: uma lembrança que não é bem sua.',
+    'Mestre Aldric está sentado à mesa da casa, mais novo, com o grimório aberto. <span class="voice">«Toda magia tem dono, menino. A lua tem o dela. O sol, o dele.»</span>',
+    'O grimório responde antes de você. <span class="voice">«E QUANDO OS DOIS ESTÃO NA MESMA MÃO?»</span> Aldric demora a dizer.',
+    '<span class="voice">«Aí não é magia. É permissão.»</span> Ele fecha o livro. <span class="voice">«E tem porta neste mundo que só se abre para quem tem permissão — e paciência de segurá-la.»</span>',
+    'A lembrança apaga. Você está de pé numa câmara de pedra que não tem saída, e alguma coisa aqui dentro percebeu que você entrou.'
+  ];
+
+  function startCallEscuro(){
+    callState = { page:0, pages:ESCURO_PAGES, fim:soltarOGrito };
+    exitPointerLock();
+    SFX.chamado();
+    ui.callOverlay.classList.add('show');
+    renderCallPage();
+  }
+
+  function soltarOGrito(){
+    ui.callOverlay.classList.remove('show');
+    callState = null;
+    // o jogador já nasce na câmara, encarando o fundo
+    camera.position.set(ESC.entrada.x, 1.7, ESC.entrada.z);
+    yaw = 0; pitch = 0;
+    camera.rotation.set(0, yaw, 0);
+    waypoint = null;
+    currentZone = null;
+    CICLO.fogBase = 0x0a0612;
+
+    if(ui.grito){
+      ui.grito.querySelector('span').innerHTML = 'VOCÊ HABITOU O ESCURO,<br>SAIA!!';
+      ui.grito.classList.add('show');
+    }
+    SFX.grito();
+    VOZ.falar('Você habitou o escuro. Saia!', 'narrador');
+    gritoTimer = 2.8;
+    setTimeout(()=>{
+      if(ui.grito) ui.grito.classList.remove('show');
+      acordarCeifador();
+      requestPointerLock();
+    }, 2800);
+  }
+
+  function acordarCeifador(){
+    if(!ceifador) return;
+    ceifador.hp = ceifador.maxHp;
+    ceifador.alive = true;
+    ceifador.noRespawn = false;
+    ceifador.group.visible = true;
+    ceifador.group.scale.set(1,1,1);
+    ceifador.group.position.set(ESC.boss.x, 0, ESC.boss.z);
+    ceifador.group.rotation.y = 0;      // encara a entrada
+    ceifador.ceifaTimer = 10;
+    ceifador.telegrafo = false;
+    ceifador.parado = false;
+    ceifador.meleeCd = 2;
+    ui.bossHud.classList.add('show');
+    ui.quest.classList.add('locked');
+    const nome = document.getElementById('bossName');
+    if(nome) nome.textContent = 'A Morte';
+    updateBossHud(ceifador);
+    updateEnemyBar(ceifador);
+    SFX.bossCharge();
+    toast('A Morte levantou. 2500 de vida — e ela anda.');
+  }
+
+  // Anda atrás de você, bate de perto e, a cada 10 segundos, carrega o
+  // escuro: três segundos parada, encarando um lado só. Quem ficar na
+  // frente leva — fica cego e sobra com 50 de vida.
+  function updateCeifador(e, dt){
+    const ud = e.group.userData;
+    if(ud.foice) ud.foice.rotation.z = -0.5 + Math.sin(performance.now()*0.0022)*0.16;
+    if(ud.olhos) ud.olhos.forEach(o=>{
+      o.material.opacity = 0.6 + Math.sin(performance.now()*0.004)*0.35;
+    });
+
+    if(!inEscuro){ e.parado = true; return; }
+
+    e.ceifaTimer -= dt;
+
+    // três segundos de aviso: ela trava a mira e para de andar
+    if(e.ceifaTimer <= 3 && !e.telegrafo){
+      e.telegrafo = true;
+      e.parado = true;
+      const dx = camera.position.x - e.group.position.x;
+      const dz = camera.position.z - e.group.position.z;
+      e.miraAng = Math.atan2(dx, dz);
+      e.group.rotation.y = e.miraAng;
+      SFX.ceifaCarga();
+      ui.bossWarn.classList.add('show');
+      if(ud.bola){ ud.bola.visible = true; ud.bola.scale.setScalar(0.1); }
+    }
+    if(e.telegrafo){
+      const t = Math.max(0, e.ceifaTimer);
+      ui.bossWarn.textContent = 'A MORTE CARREGA O ESCURO — SAIA DA FRENTE  ' + t.toFixed(1) + 's';
+      e.group.rotation.y = e.miraAng;
+      if(ud.bola) ud.bola.scale.setScalar(0.1 + (3 - t)*1.1);
+      if(ud.luz) ud.luz.intensity = 0.8 + (3 - t)*1.6;
+    }
+
+    if(e.ceifaTimer <= 0){
+      golpeDoEscuro(e);
+      e.ceifaTimer = 10;
+      e.telegrafo = false;
+      e.parado = false;
+      ui.bossWarn.classList.remove('show');
+      if(ud.bola) ud.bola.visible = false;
+      if(ud.luz) ud.luz.intensity = 0.8;
+    }
+    updateBossHud(e);
+  }
+
+  function golpeDoEscuro(e){
+    SFX.ceifaGolpe();
+    spawnBlastRing(e.group.position.clone());
+    const dx = camera.position.x - e.group.position.x;
+    const dz = camera.position.z - e.group.position.z;
+    const d = Math.hypot(dx, dz) || 1;
+    // acerta quem estiver na frente da mira travada
+    const mx = Math.sin(e.miraAng), mz = Math.cos(e.miraAng);
+    const alinhado = (dx/d)*mx + (dz/d)*mz;
+    if(alinhado > 0.35 && d < 46){
+      playerHp = Math.min(playerHp, 50);
+      shownHp = -1;
+      cegarJogador(5.0);
+      SFX.hurt();
+      ui.vignette.classList.add('hit');
+      setTimeout(()=> ui.vignette.classList.remove('hit'), 500);
+      toast('O escuro te pegou — cego, e com 50 de vida');
+      if(playerHp <= 0) killPlayer();
+    } else {
+      toast('O escuro passou de raspão');
+    }
+  }
+
+  function cegarJogador(segundos){
+    cegoAte = segundos;
+    if(ui.cego) ui.cego.style.opacity = '0.97';
+  }
+
+  function ceifadorDerrotado(){
+    ui.bossWarn.classList.remove('show');
+    ui.bossHud.classList.remove('show');
+    if(ui.cego) ui.cego.style.opacity = '0';
+    cegoAte = 0;
+    SFX.unlock();
+    money += 150;
+    ui.moneyVal.textContent = 'R$ ' + money;
+    toast('A Morte se desfez. O escuro ficou quieto — por enquanto.');
+    setTimeout(()=>{
+      if(!inEscuro) return;
+      sairEscuro();
+      placeCheckpoint({x:ESC.portalMundo.x, z:ESC.portalMundo.z, name:'Porta do Escuro'});
+      toast('Você saiu do Escuro Inabitável. E ele deixou.');
+    }, 3200);
+  }
 
   // Marca no chão o último checkpoint conquistado
   function placeCheckpoint(cp){
@@ -3661,6 +4302,9 @@ function animarAldric(modelo, t, dt){
               throwMin:7, throwMax:34, throwCd:3.0, body:0xd8d2c0, head:0xeee8d8, eye:0xff6b3a,
               hitRadius:0.75, hitY:1.1, scale:0.95, counts:true, zone:'cemiterio', horda:true,
               rock:0xe8e2d0, rockDmg:8 },
+    ceifador:{ name:'A Morte', hp:2500, dmg:17, speed:3.2, aggro:220, melee:3.6, meleeCd:1.5,
+              throwMin:9999, throwMax:9999, throwCd:999, body:0x15111f, head:0xe4ddc8, eye:0x9b2bff,
+              hitRadius:1.9, hitY:2.6, scale:1, counts:false, boss:true, ceifa:true, barYOverride:0 },
     dummy:  { name:'Alvo de Treino', hp:100, dmg:0, speed:0, aggro:0, melee:0, meleeCd:99,
               throwMin:999, throwMax:999, throwCd:99, body:0xbbafa3, head:0xdcd6c8, eye:0x000000,
               hitRadius:0.62, hitY:1.0, scale:1, counts:false, passive:true },
@@ -3672,6 +4316,7 @@ function animarAldric(modelo, t, dt){
     goblin:   ['pele',   1.2],
     golem:    ['rocha',  1.6],
     mundus:   ['rocha',  2.6],
+    ceifador: ['pano',   1.5],
     zumbi:    ['pele',   1.0],
     esqueleto:['rocha',  0.9],
     dummy:    ['pano',   1.2],
@@ -3911,6 +4556,115 @@ function animarAldric(modelo, t, dt){
       sl.position.y = 2.6;
       group.add(sl);
       group.position.y = 0.5;
+    } else if(typeId==='ceifador'){
+      // Vulto encapuzado com crânio e foice. Do tamanho de um golem.
+      // sem matBicho: aquele clareia a cor para o bicho nao virar sombra, e
+      // esta aqui precisa ser sombra mesmo.
+      const texPano = TEX.get('pano', 1.5);
+      const pano  = new THREE.MeshStandardMaterial({color:0x241d38, roughness:1, flatShading:true,
+                      map:texPano, bumpMap:texPano, bumpScale:0.35,
+                      emissive:0x0a0712, emissiveIntensity:0.5});
+      const pano2 = new THREE.MeshStandardMaterial({color:0x15101f, roughness:1, flatShading:true,
+                      map:texPano, bumpMap:texPano, bumpScale:0.35,
+                      emissive:0x07050c, emissiveIntensity:0.5});
+      const osso  = new THREE.MeshStandardMaterial({color:T.head, roughness:0.85, flatShading:true,
+                      emissive:0x4a4436, emissiveIntensity:0.8});
+      const brasa = new THREE.MeshBasicMaterial({color:T.eye, transparent:true, opacity:.85});
+
+      // manto: um cone largo que vai do chão ao peito
+      const manto = new THREE.Mesh(new THREE.ConeGeometry(1.55, 3.3, 10), pano);
+      manto.position.y = 1.65;
+      group.add(manto);
+      // retalhos esvoaçando na barra do manto
+      for(let i=0;i<10;i++){
+        const a = (i/10)*Math.PI*2;
+        const rt = new THREE.Mesh(new THREE.ConeGeometry(0.3, 1.1, 4), pano2);
+        rt.position.set(Math.cos(a)*1.4, 0.55, Math.sin(a)*1.4);
+        rt.rotation.z = Math.cos(a)*0.2;
+        group.add(rt);
+      }
+      // tronco e ombros
+      const tronco = new THREE.Mesh(new THREE.CylinderGeometry(0.85, 1.25, 1.5, 10), pano);
+      tronco.position.y = 3.35;
+      group.add(tronco);
+      for(const sx of [-1,1]){
+        const ombro = new THREE.Mesh(new THREE.SphereGeometry(0.62, 12, 9), pano2);
+        ombro.position.set(sx*0.95, 3.85, 0);
+        group.add(ombro);
+        const braco = new THREE.Mesh(new THREE.CylinderGeometry(0.17, 0.2, 1.7, 7), pano2);
+        braco.position.set(sx*1.05, 2.95, 0.25);
+        braco.rotation.x = -0.2;
+        group.add(braco);
+        const mao = new THREE.Mesh(new THREE.SphereGeometry(0.24, 9, 7), osso);
+        mao.position.set(sx*1.12, 2.1, 0.5);
+        group.add(mao);
+      }
+      // capuz e crânio
+      const capuz = new THREE.Mesh(new THREE.SphereGeometry(0.78, 14, 11, 0, Math.PI*2, 0, Math.PI*0.62), pano);
+      capuz.position.y = 4.35;
+      capuz.rotation.x = 0.16;
+      group.add(capuz);
+      const sombraCapuz = new THREE.Mesh(new THREE.SphereGeometry(0.5, 12, 10),
+                          new THREE.MeshBasicMaterial({color:0x03020a}));
+      sombraCapuz.position.set(0, 4.2, 0.1);
+      group.add(sombraCapuz);
+      const cranio = new THREE.Mesh(new THREE.SphereGeometry(0.42, 14, 11), osso);
+      cranio.position.set(0, 4.24, 0.5);
+      cranio.scale.set(0.86, 1, 0.95);
+      group.add(cranio);
+      const maxilar = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.2, 0.42), osso);
+      maxilar.position.set(0, 3.9, 0.58);
+      group.add(maxilar);
+      // as órbitas, pretas, e as brasas dentro delas
+      const olhos = [];
+      for(const sx of [-1,1]){
+        const orbita = new THREE.Mesh(new THREE.SphereGeometry(0.135, 9, 7),
+                       new THREE.MeshBasicMaterial({color:0x08040f}));
+        orbita.position.set(sx*0.17, 4.3, 0.8);
+        group.add(orbita);
+        const olho = new THREE.Mesh(new THREE.SphereGeometry(0.105, 9, 7), brasa.clone());
+        olho.position.set(sx*0.17, 4.3, 0.845);
+        group.add(olho);
+        olhos.push(olho);
+      }
+      // a foice
+      const foice = new THREE.Group();
+      const cabo = new THREE.Mesh(new THREE.CylinderGeometry(0.075, 0.095, 5.2, 7),
+                   matStd(0x2c2218, {tex:'madeira', rep:1.4, bump:0.4}));
+      cabo.position.y = 0.6;
+      foice.add(cabo);
+      const lamina = new THREE.Mesh(new THREE.TorusGeometry(1.25, 0.1, 6, 16, Math.PI*0.62),
+                     new THREE.MeshStandardMaterial({color:0xb9b2c6, roughness:0.45, metalness:0.4,
+                                                     flatShading:true}));
+      lamina.position.set(0.95, 3.0, 0);
+      lamina.rotation.set(Math.PI/2, 0, 1.5);
+      foice.add(lamina);
+      const fio = new THREE.Mesh(new THREE.TorusGeometry(1.25, 0.04, 5, 16, Math.PI*0.62),
+                  new THREE.MeshBasicMaterial({color:0xa79ed6}));
+      fio.position.copy(lamina.position); fio.rotation.copy(lamina.rotation);
+      foice.add(fio);
+      foice.position.set(1.18, 1.9, 0.55);
+      foice.rotation.z = -0.5;
+      group.add(foice);
+
+      // a bola de escuridão que ela junta antes do golpe
+      const bola = new THREE.Mesh(new THREE.SphereGeometry(1, 16, 12),
+                   new THREE.MeshBasicMaterial({color:0x14031f, transparent:true, opacity:.9}));
+      bola.position.set(0, 2.6, 1.9);
+      bola.visible = false;
+      group.add(bola);
+      const luz = new THREE.PointLight(0x8a3fe6, 1.2, 26);
+      luz.position.set(0, 3.2, 1.0);
+      group.add(luz);
+      // uma luz presa ao capuz: sem ela a cavea some no escuro
+      const luzCapuz = new THREE.PointLight(0xc9b68c, 0.55, 3.2);
+      luzCapuz.position.set(0, 4.3, 1.05);
+      group.add(luzCapuz);
+
+      group.userData.foice = foice;
+      group.userData.olhos = olhos;
+      group.userData.bola  = bola;
+      group.userData.luz   = luz;
     } else if(typeId==='golem'){
       // Colosso de pedra: blocos toscos e runas acesas
       const torso = new THREE.Mesh(new THREE.BoxGeometry(2.0,2.2,1.3), bodyMat);
@@ -4083,10 +4837,22 @@ function animarAldric(modelo, t, dt){
   function blocked(){ return !started || craftOpen || dead || dialogueOpen || shopOpen || runeOpen || fusaoOpen || cutsceneAtiva(); }
 
   function onMouseDown(e){
-    if(e.button!==0) return;
     if(blocked()) return;
+    if(e.button===2){
+      // botao direito: comeca a carregar a magia
+      e.preventDefault();
+      if(!pointerLocked){ requestPointerLock(); return; }
+      CARGA.comecar();
+      return;
+    }
+    if(e.button!==0) return;
     if(!pointerLocked){ requestPointerLock(); }
-    tryCast();
+    if(CARGA.ativa){ CARGA.quebrar(null); return; }   // clique esquerdo cancela a carga
+    tryCast(false);
+  }
+
+  function onMouseUp(e){
+    if(e.button===2){ e.preventDefault(); CARGA.soltar(); }
   }
 
   function onMouseMove(e){
@@ -4139,6 +4905,8 @@ function animarAldric(modelo, t, dt){
       else if(nearNpc) openDialogue(nearNpc);
       else if(nearDrop) pegarRuna();
       else if(nearPortal) abrirPortal();
+      else if(nearPortalEscuro) entrarEscuro();
+      else if(nearPortaEscuro) lerPlacaEscuro();
       else if(nearNote) readNote();
       else if(nearRuna) openFusao();
       else if(nearShop) openShop();
@@ -4262,7 +5030,15 @@ function animarAldric(modelo, t, dt){
     playerHp = maxHp;
     mana = maxMana;
     shownMana = shownHp = -1;
-    if(inArena){
+    if(inEscuro){
+      cegoAte = 0;
+      if(ui.cego) ui.cego.style.opacity = '0';
+      acordarCeifador();
+      camera.position.set(ESC.entrada.x, 1.7, ESC.entrada.z);
+      yaw = 0; pitch = 0;
+      camera.rotation.set(0, yaw, 0);
+      toast('A Morte voltou inteira — 2500 de vida.');
+    } else if(inArena){
       resetBoss();
       camera.position.set(ARENA.entry.x, 1.7, ARENA.entry.z);
       yaw = Math.PI; pitch = 0;
@@ -4861,6 +5637,10 @@ function animarAldric(modelo, t, dt){
         q.kills = q.zumbis + q.esqueletos;
         updateQuestHud();
       }
+      return;
+    }
+    if(e.T.boss && e.typeId === 'ceifador'){
+      ceifadorDerrotado();
       return;
     }
     if(e.T.boss){
@@ -5569,7 +6349,88 @@ function animarAldric(modelo, t, dt){
     }
   }
 
-  function tryCast(){
+  // ---------------------------------------------------------------
+  // CARGA DA MAGIA
+  // Segure o botao direito para carregar. So carrega parado: deu um
+  // passo, a carga quebra. Cheia, a magia sai com o dobro de dano — e
+  // o Eclipse carregado e a unica coisa que abre a porta do Escuro.
+  // ---------------------------------------------------------------
+  const CARGA = {
+    ativa:false, pronta:false, t:0, max:1.5, spell:null, quebrada:0,
+
+    podeCarregar(){
+      if(blocked() || dead) return false;
+      const def = getSpellDef(activeSpellId);
+      if(!def){ toast('Nenhuma magia equipada — abra o Grimório [E]'); flashCrosshair(); return false; }
+      if(mana < def.cost){ toast('Mana insuficiente para carregar'); flashCrosshair(); return false; }
+      return true;
+    },
+
+    comecar(){
+      if(this.ativa) return;
+      if(!this.podeCarregar()) return;
+      this.ativa = true; this.pronta = false; this.t = 0;
+      this.spell = activeSpellId; this.quebrada = 0;
+      SFX.carga();
+      this.pintar();
+    },
+
+    andando(){ return !!(keys.w || keys.a || keys.s || keys.d); },
+
+    quebrar(motivo){
+      if(!this.ativa) return;
+      this.ativa = false; this.pronta = false; this.t = 0;
+      this.quebrada = 0.7;
+      if(motivo) toast(motivo);
+      SFX.cargaQuebra();
+      this.pintar();
+    },
+
+    atualizar(dt){
+      if(this.quebrada > 0){
+        this.quebrada -= dt;
+        if(this.quebrada <= 0){ this.quebrada = 0; this.pintar(); }
+      }
+      if(!this.ativa) return;
+      if(blocked() || dead){ this.quebrar(null); return; }
+      if(activeSpellId !== this.spell){ this.quebrar('Trocou de magia — carga perdida'); return; }
+      if(this.andando()){ this.quebrar('Para carregar é preciso ficar parado'); return; }
+      if(mana < (getSpellDef(this.spell) || {cost:0}).cost){ this.quebrar('Mana insuficiente'); return; }
+      this.t = Math.min(this.max, this.t + dt);
+      if(!this.pronta && this.t >= this.max){
+        this.pronta = true;
+        SFX.cargaCheia();
+      }
+      this.pintar();
+    },
+
+    soltar(){
+      if(!this.ativa) return;
+      const cheia = this.pronta;
+      this.ativa = false; this.pronta = false;
+      const guardada = this.t; this.t = 0;
+      this.pintar();
+      if(cheia) tryCast(true);
+      else if(guardada > 0.2) toast('Soltou cedo demais — a magia não carregou');
+    },
+
+    pintar(){
+      const w = ui.cargaWrap;
+      if(!w) return;
+      if(!this.ativa && this.quebrada <= 0){ w.classList.remove('show','cheia','quebrada'); return; }
+      w.classList.add('show');
+      w.classList.toggle('cheia', this.pronta);
+      w.classList.toggle('quebrada', !this.ativa && this.quebrada > 0);
+      const frac = this.ativa ? (this.t/this.max) : 1;
+      ui.cargaFill.style.width = Math.round(frac*100) + '%';
+      const def = getSpellDef(this.spell);
+      const nome = def ? def.name : 'Magia';
+      ui.cargaTxt.textContent = (!this.ativa && this.quebrada > 0) ? 'Carga quebrada'
+                              : (this.pronta ? nome + ' carregada — solte' : 'Carregando ' + nome);
+    },
+  };
+
+  function tryCast(carregada){
     const now = performance.now();
     if(now - lastCastAt < CAST_COOLDOWN) return;
     const def = getSpellDef(activeSpellId);
@@ -5580,7 +6441,7 @@ function animarAldric(modelo, t, dt){
     playCastGesture();
     playBookGlow();
     SFX.cast(def);
-    spawnProjectile(def);
+    spawnProjectile(def, !!carregada);
   }
 
   function playBookGlow(){
@@ -5624,23 +6485,35 @@ function animarAldric(modelo, t, dt){
   // Magias de fogo (o elemento puro e as combinações que o contêm) causam crítico
   function isFireSpell(id){ return !!id && (id === 'fogo' || id.indexOf('fogo') >= 0); }
 
-  function spawnProjectile(def){
+  function spawnProjectile(def, carregada){
     const dir = new THREE.Vector3();
     camera.getWorldDirection(dir);
+    const raio = def.radius * (carregada ? 1.55 : 1);
     const mat = new THREE.MeshBasicMaterial({color:def.color});
-    const mesh = new THREE.Mesh(new THREE.SphereGeometry(def.radius,10,8), mat);
+    const mesh = new THREE.Mesh(new THREE.SphereGeometry(raio,10,8), mat);
     mesh.position.copy(camera.position).addScaledVector(dir, 0.7);
     scene.add(mesh);
     let light = null;
-    if(def.type==='unique'){
-      light = new THREE.PointLight(def.color, 1.8, 12);
+    if(def.type==='unique' || carregada){
+      light = new THREE.PointLight(def.color, carregada ? 3.0 : 1.8, carregada ? 20 : 12);
       mesh.add(light);
     }
-    const danoFinal = def.pilha ? def.dmg * (1 + pilhaMorte) : def.dmg;
-    projectiles.push({mesh, vel:dir.clone().multiplyScalar(def.speed), dmg:danoFinal,
-                      radius:def.radius, color:def.color, life:3.0,
+    if(carregada){
+      // uma coroa girando em volta deixa claro que o tiro saiu carregado
+      const halo = new THREE.Mesh(new THREE.TorusGeometry(raio*1.8, raio*0.3, 7, 16),
+                   new THREE.MeshBasicMaterial({color:def.color, transparent:true, opacity:.65}));
+      halo.rotation.x = Math.PI/2;
+      mesh.add(halo);
+      mesh.userData.halo = halo;
+    }
+    let danoFinal = def.pilha ? def.dmg * (1 + pilhaMorte) : def.dmg;
+    if(carregada) danoFinal = Math.round(danoFinal * 2);
+    projectiles.push({mesh, vel:dir.clone().multiplyScalar(def.speed * (carregada ? 1.15 : 1)),
+                      dmg:danoFinal,
+                      radius:raio, color:def.color, life:3.0,
                       unique:def.type==='unique', heal:def.heal||0, fire:isFireSpell(activeSpellId),
-                      stun:def.stun||0, lama:activeSpellId==='agua+terra'});
+                      stun:def.stun||0, lama:activeSpellId==='agua+terra',
+                      carregada:!!carregada, spellId:activeSpellId});
   }
 
   // ===============================================================
@@ -6178,6 +7051,10 @@ function animarAldric(modelo, t, dt){
       if(dsub) dsub.textContent = 'A defesa de Arquimedes não deixa ninguém sair pela porta.';
       if(drest) drest.textContent = 'Levantar e continuar';
       if(dmenu) dmenu.style.display = 'none';
+    } else if(inEscuro){
+      if(dsub) dsub.textContent = 'A Morte não deixa ninguém sair pelo portal.';
+      if(drest) drest.textContent = 'Levantar e encarar de novo';
+      if(dmenu) dmenu.style.display = 'none';
     } else if(inArena){
       if(dsub) dsub.textContent = 'Mundus se recompõe por inteiro. Não há saída daqui.';
       if(drest) drest.textContent = 'Levantar e encarar de novo';
@@ -6264,6 +7141,8 @@ function animarAldric(modelo, t, dt){
       updateNpcProximity();
     }
     atualizarContagem();
+    CARGA.atualizar(dt);
+    atualizarEscuro(dt);
     updateEnemies(dt);
     updateBursts(dt);
     updateBlastRings(dt);
@@ -6380,6 +7259,34 @@ function animarAldric(modelo, t, dt){
       if(perto){ nearNpc = null; nearShop = false; nearNote = false; return; }
     } else if(nearPortal){ nearPortal = false; ui.interact.classList.remove('show'); }
 
+    // Porta e portal do Escuro Inabitável
+    if(ESC.portal && !inEscuro){
+      const pw = ESC.portalMundo;
+      const dpe = Math.hypot(camera.position.x-pw.x, camera.position.z-pw.z);
+      const perto = dpe < 5.5;
+      if(perto !== nearPortalEscuro){
+        nearPortalEscuro = perto;
+        if(perto){
+          ui.interact.innerHTML = '<b>[F]</b> Atravessar o portal — O Escuro Inabitável';
+          ui.interact.classList.add('show');
+        } else ui.interact.classList.remove('show');
+      }
+      if(perto){ nearNpc = null; nearShop = false; nearNote = false; nearPortaEscuro = false; return; }
+    } else if(nearPortalEscuro){ nearPortalEscuro = false; ui.interact.classList.remove('show'); }
+
+    if(!ESC.aberta && ESC.placaMundo){
+      const dpl = Math.hypot(camera.position.x-ESC.placaMundo.x, camera.position.z-ESC.placaMundo.z);
+      const perto = dpl < 6.5;
+      if(perto !== nearPortaEscuro){
+        nearPortaEscuro = perto;
+        if(perto){
+          ui.interact.innerHTML = '<b>[F]</b> Ler a placa da montanha';
+          ui.interact.classList.add('show');
+        } else ui.interact.classList.remove('show');
+      }
+      if(perto){ nearNpc = null; nearShop = false; nearNote = false; return; }
+    } else if(nearPortaEscuro){ nearPortaEscuro = false; ui.interact.classList.remove('show'); }
+
     const dShop = Math.hypot(camera.position.x-SHOP_POS.x, camera.position.z-SHOP_POS.z);
     const dNote = Math.hypot(camera.position.x-NOTE_POS.x, camera.position.z-NOTE_POS.z);
     const noteClose = aldricGone && dNote < 3.2 && dNote < bestD && dNote < dShop;
@@ -6474,7 +7381,15 @@ function animarAldric(modelo, t, dt){
       if(!blockedAt(camera.position.x, pz+move.z, PLAYER_R)) camera.position.z = pz+move.z;
     }
 
-    if(inArena || inCemiterio){
+    if(inEscuro){
+      const ex = camera.position.x - ESC.cx, ez = camera.position.z - ESC.cz;
+      const ed = Math.hypot(ex, ez);
+      if(ed > ESC.cr - 2){
+        const k = (ESC.cr - 2)/ed;
+        camera.position.x = ESC.cx + ex*k;
+        camera.position.z = ESC.cz + ez*k;
+      }
+    } else if(inArena || inCemiterio){
       // Nenhuma saída antes de acabar
       const A = inArena ? ARENA : CEM;
       const ax = camera.position.x - A.x, az = camera.position.z - A.z;
@@ -6514,6 +7429,7 @@ function animarAldric(modelo, t, dt){
             break;
           }
         }
+        if(!hit && tiroNaPortaEscuro(p)) hit = true;
         if(!hit && sceneryHit(p.mesh.position, p.radius)){
           spawnHitBurst(p.mesh.position.clone(), p.color);
           SFX.impact();
@@ -6574,6 +7490,7 @@ function animarAldric(modelo, t, dt){
       if(e.group.scale.x < 1) e.group.scale.setScalar(Math.min(1, e.group.scale.x + dt*3));
       if(e.T.immobile){ if(playing) updateBoss(e, dt); continue; }
       if(!playing || e.T.passive) continue;
+      if(e.T.ceifa) updateCeifador(e, dt);
       if(estaPreso(e)){
         if(e.aureola) e.aureola.rotation.z += dt*2.2;
         continue;
@@ -6587,7 +7504,8 @@ function animarAldric(modelo, t, dt){
       if(dist < T.aggro){
         e.group.rotation.y = Math.atan2(dx, dz);
         // Perseguição
-        if(dist > T.melee){
+        if(e.telegrafo) e.group.rotation.y = e.miraAng;
+        if(dist > T.melee && !e.parado){
           const nx = dx/dist, nz = dz/dist;
           const step = T.speed*dt;
           const tx = e.group.position.x + nx*step;
@@ -6604,7 +7522,7 @@ function animarAldric(modelo, t, dt){
         }
         // Ataque corpo a corpo
         e.meleeCd -= dt;
-        if(dist <= T.melee && e.meleeCd <= 0){
+        if(dist <= T.melee && e.meleeCd <= 0 && !e.telegrafo){
           e.meleeCd = T.meleeCd;
           damagePlayer(T.dmg);
           SFX.goblin();
