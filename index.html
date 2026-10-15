@@ -1195,6 +1195,7 @@
   // 5. ESTADO
   // ===============================================================
   let scene, camera, renderer, clock;
+  let ambLight = null, moonLight = null, astro = null, estrelas = null;
   const resTeto = Math.min(window.devicePixelRatio || 1, 1.5);
   let escalaRes = resTeto, resSoma = 0, resConta = 0, resUltimo = 0;
   let yaw = 0, pitch = 0;
@@ -1385,10 +1386,12 @@
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.toneMappingExposure = 0.95;
 
-    scene.add(new THREE.AmbientLight(0x7d7299, 0.24));
-    const moon = new THREE.DirectionalLight(0xcfc2e6, 0.40);
-    moon.position.set(40,70,-20);
-    scene.add(moon);
+    ambLight = new THREE.AmbientLight(0x7d7299, 0.24);
+    scene.add(ambLight);
+    moonLight = new THREE.DirectionalLight(0xcfc2e6, 0.40);
+    moonLight.position.set(40,70,-20);
+    scene.add(moonLight);
+    buildCeu();
     const glow = new THREE.PointLight(0x8866ff, 0.42, 18);
     camera.add(glow);
     scene.add(camera);
@@ -1865,6 +1868,11 @@
     ice:   new THREE.ConeGeometry(1,1,5).translate(0,0.5,0),
     lapide: new THREE.BoxGeometry(1.5,1,0.35).translate(0,0.5,0),
     arvoreMorta: new THREE.CylinderGeometry(0.16,0.42,5.2,6).translate(0,2.6,0),
+    // peças soltas: tudo o que é cenário é montado com estas quatro
+    cil:  new THREE.CylinderGeometry(0.5,0.5,1,10).translate(0,0.5,0),
+    cubo: new THREE.BoxGeometry(1,1,1).translate(0,0.5,0),
+    cone: new THREE.ConeGeometry(0.5,1,8).translate(0,0.5,0),
+    aro:  new THREE.TorusGeometry(0.5,0.055,6,14),
     montanha: (function(){
       // Cone amassado: um cone limpo parece origami. As faces ganham
       // quebras, e cada pico ainda gira e se estica por conta própria.
@@ -1969,6 +1977,126 @@
     spawnSombras(4);
     buildTrainingDummies();
   }
+
+  // ---------------------------------------------------------------
+  // CICLO DE DIA E NOITE
+  // Uma volta completa em 2 minutos e meio. Muda a direção, a cor e a
+  // força da luz; a cor do céu; o astro que cruza o céu; as estrelas; e
+  // o tom da névoa — que continua sendo a da zona, só clareada conforme
+  // a hora, para cada bioma seguir reconhecível de dia.
+  // ---------------------------------------------------------------
+  function buildCeu(){
+    // Estrelas: só aparecem de noite, e somem no clarear.
+    const n = 420;
+    const g = new THREE.BufferGeometry();
+    const pos = new Float32Array(n*3);
+    for(let i=0;i<n;i++){
+      const a = Math.random()*Math.PI*2;
+      const el = Math.acos(Math.random()*0.92);      // nada rente ao horizonte
+      const r = 780;
+      pos[i*3]   = Math.sin(el)*Math.cos(a)*r;
+      pos[i*3+1] = Math.cos(el)*r*0.9 + 40;
+      pos[i*3+2] = Math.sin(el)*Math.sin(a)*r;
+    }
+    g.setAttribute('position', new THREE.BufferAttribute(pos,3));
+    estrelas = new THREE.Points(g, new THREE.PointsMaterial({
+      color:0xdfe4ff, size:3.2, sizeAttenuation:false, transparent:true,
+      opacity:0.9, depthWrite:false, fog:false
+    }));
+    scene.add(estrelas);
+
+    // O astro: sol de dia, lua de noite. É o que torna a hora legível.
+    astro = new THREE.Mesh(new THREE.SphereGeometry(1, 18, 14),
+            new THREE.MeshBasicMaterial({color:0xfff2cf, fog:false}));
+    scene.add(astro);
+  }
+
+  const CICLO = {
+    duracao: 150,          // 2,5 minutos a volta inteira
+    t: 0.80,               // começa no fim da tarde: o jogo abre na penumbra
+    fogBase: 0x2a2340,     // cor de névoa da zona onde o jogador está
+    corA: new THREE.Color(), corB: new THREE.Color(),
+    // Paradas da hora. Entre duas paradas tudo é interpolado.
+    paradas: [
+      { t:0.00, ceu:0x0d0a16, nev:0x2a2340, luz:0xbfb0e0, lf:0.30, amb:0x6f66a0, af:0.20, dia:0.00, astroCor:0xdfe0ff, astroR:9  },
+      { t:0.17, ceu:0x1d1830, nev:0x3a3254, luz:0xc8bae8, lf:0.34, amb:0x7a70a8, af:0.23, dia:0.06, astroCor:0xdfe0ff, astroR:9  },
+      { t:0.25, ceu:0x5f3f52, nev:0x9c6a5e, luz:0xff9a58, lf:0.58, amb:0xa07e8a, af:0.36, dia:0.45, astroCor:0xffb070, astroR:13 },
+      { t:0.33, ceu:0x87aacd, nev:0xc6d2de, luz:0xffeed2, lf:1.00, amb:0xbccbdf, af:0.58, dia:0.95, astroCor:0xfff4da, astroR:11 },
+      { t:0.50, ceu:0x9cc3e8, nev:0xdae5ef, luz:0xfffaf2, lf:1.16, amb:0xccdaea, af:0.66, dia:1.00, astroCor:0xfffdf4, astroR:10 },
+      { t:0.67, ceu:0x87aacd, nev:0xc6d2de, luz:0xffeed2, lf:1.00, amb:0xbccbdf, af:0.58, dia:0.95, astroCor:0xfff4da, astroR:11 },
+      { t:0.75, ceu:0x6b3f48, nev:0xa86a56, luz:0xff8440, lf:0.54, amb:0x9c7682, af:0.34, dia:0.42, astroCor:0xff8a46, astroR:14 },
+      { t:0.84, ceu:0x1c1628, nev:0x3c3458, luz:0xc4b6e4, lf:0.32, amb:0x766ca2, af:0.22, dia:0.05, astroCor:0xdfe0ff, astroR:9  },
+      { t:1.00, ceu:0x0d0a16, nev:0x2a2340, luz:0xbfb0e0, lf:0.30, amb:0x6f66a0, af:0.20, dia:0.00, astroCor:0xdfe0ff, astroR:9  },
+    ],
+    // A arena do Mundus e o cemitério são cenas escritas, com a própria
+    // atmosfera. Lá o relógio para: amanhecer no meio da luta estragaria.
+    travado(){ return inArena || inCemiterio; },
+    fase(){
+      const h = this.t;
+      if(h < 0.22 || h >= 0.86) return 'noite';
+      if(h < 0.30) return 'amanhecer';
+      if(h < 0.70) return 'dia';
+      if(h < 0.80) return 'poente';
+      return 'anoitecer';
+    },
+    agora(){
+      const P = this.paradas;
+      let i = 0;
+      while(i < P.length-2 && P[i+1].t <= this.t) i++;
+      const a = P[i], b = P[i+1];
+      const k = (this.t - a.t) / Math.max(1e-6, b.t - a.t);
+      const mix = (x,y)=> x + (y-x)*k;
+      return {
+        ceu:a.ceu, ceu2:b.ceu, luz:a.luz, luz2:b.luz, amb:a.amb, amb2:b.amb,
+        astroCor:a.astroCor, astroCor2:b.astroCor, k:k,
+        lf:mix(a.lf,b.lf), af:mix(a.af,b.af), dia:mix(a.dia,b.dia),
+        nev:a.nev, nev2:b.nev, astroR:mix(a.astroR,b.astroR)
+      };
+    },
+    atualizar(dt){
+      if(!this.travado()) this.t = (this.t + dt/this.duracao) % 1;
+      const p = this.agora();
+      const lerpHex = (h1,h2,k,alvo)=>{ alvo.setHex(h1); this.corB.setHex(h2); return alvo.lerp(this.corB, k); };
+
+      // luz principal: o sol de dia, a lua de noite, no mesmo arco
+      const ang = (this.t - 0.25) * Math.PI * 2;
+      const alt = Math.sin(ang);
+      const h = (alt >= 0) ? (0.10 + alt*0.90) : (0.10 + (-alt)*0.34);   // a lua anda mais baixa
+      const dir = new THREE.Vector3(Math.cos(ang)*0.86, h, -0.34).normalize();
+      moonLight.position.copy(dir).multiplyScalar(260);
+      lerpHex(p.luz, p.luz2, p.k, moonLight.color);
+      moonLight.intensity = p.lf;
+      lerpHex(p.amb, p.amb2, p.k, ambLight.color);
+      ambLight.intensity = p.af;
+
+      if(scene.background) lerpHex(p.ceu, p.ceu2, p.k, scene.background);
+
+      if(astro){
+        astro.position.copy(dir).multiplyScalar(640).add(camera.position);
+        astro.scale.setScalar(p.astroR);
+        lerpHex(p.astroCor, p.astroCor2, p.k, astro.material.color);
+      }
+      if(estrelas){
+        estrelas.position.copy(camera.position);
+        // somem rápido: estrela em céu de amanhecer entrega o truque
+        estrelas.material.opacity = Math.max(0, 0.92 - p.dia*2.4);
+        estrelas.visible = estrelas.material.opacity > 0.02;
+      }
+      if(motes) motes.material.opacity = 0.5 * (1 - p.dia*0.85);
+
+      if(!this.travado() && scene.fog){
+        // a névoa segue sendo a da zona; o dia só a clareia
+        lerpHex(this.fogBase, this.fogBase, 0, this.corA);
+        const alvoDia = lerpHex(p.nev, p.nev2, p.k, new THREE.Color());
+        this.corA.lerp(alvoDia, p.dia * 0.72);
+        scene.fog.color.copy(this.corA);
+        scene.fog.density = 0.0125 - p.dia*0.0032;   // de dia se vê mais longe
+      }
+      // fogueiras e braseiros perdem força no claro
+      this.brilhoFogo = 1 - p.dia*0.72;
+    },
+    brilhoFogo: 1,
+  };
 
   // ---- Cordilheira da borda -------------------------------------------
   // O jogador para de andar no raio 178. Daí para fora entram duas fileiras
@@ -2258,6 +2386,186 @@
     addSphereCol(x, s*0.45, z, s*1.1);
   }
 
+  // ---------------------------------------------------------------
+  // OBJETOS DE CENÁRIO
+  // Montados no código com as mesmas quatro formas e as mesmas texturas
+  // do resto do mundo — é isso que mantém a escala e o acabamento
+  // batendo. Tudo passa por pushInst, então cada tipo custa uma chamada
+  // de desenho por região, não uma por objeto.
+  // ---------------------------------------------------------------
+  const DEC = {};
+  function matDec(k){
+    if(DEC[k]) return DEC[k];
+    const m = {
+      madeira:  matStd(0x6d5a42, {tex:'madeira', rep:1.1, bump:0.45}),
+      madEsc:   matStd(0x4e4030, {tex:'madeira', rep:1.3, bump:0.45}),
+      pedra:    matStd(0x6f6b80, {tex:'rocha',   rep:1.1, flatShading:true, bump:0.55}),
+      alvenaria:matStd(0x7c7489, {tex:'tijolo',  rep:1.4, bump:0.55}),
+      ferro:    matStd(0x3e3e46, {tex:'rocha',   rep:0.7, metalness:0.25, roughness:0.6}),
+      palha:    matStd(0x9a8352, {tex:'pano',    rep:1.6, bump:0.3}),
+      lona:     matStd(0x8a8068, {tex:'pano',    rep:1.2, bump:0.3}),
+      capa:     matStd(0x6a7a52, {tex:'grama',   rep:1.0, bump:0.3}),
+      cogumelo: matStd(0xb8564c, {roughness:0.85}),
+      pe:       matStd(0xd8cfbc, {roughness:0.9}),
+    }[k];
+    DEC[k] = m;
+    return m;
+  }
+  // atalho: empurra uma peça com posição, giro e escala
+  function pc(chave, geo, mat, x,y,z, ry, sx,sy,sz, rx, rz){
+    pushInst(chave, geo, mat, instMatrix(x,y,z, rx||0, ry||0, rz||0, sx,sy,sz));
+  }
+
+  // Poço de pedra com telhado e balde
+  function makePoco(x, z){
+    const G = GEO, m = matDec('alvenaria'), w = matDec('madeira');
+    pc('pocoBase', G.cil, m, x, 0, z, 0, 2.5, 1.1, 2.5);
+    pc('pocoBoca', G.aro, m, x, 1.12, z, 0, 2.5, 2.5, 2.5, Math.PI/2);
+    for(const sx of [-1, 1]) pc('pocoPoste', G.cubo, w, x + sx*1.0, 1.1, z, 0, 0.16, 2.1, 0.16);
+    pc('pocoTelha', G.cone, matDec('palha'), x, 3.1, z, Math.PI/4, 3.2, 1.0, 3.2);
+    pc('pocoEixo',  G.cil,  w, x, 2.5, z, 0, 0.12, 2.1, 0.12, 0, Math.PI/2);
+    pc('pocoBalde', G.cil,  matDec('madEsc'), x, 1.45, z, 0, 0.55, 0.5, 0.55);
+    addSphereCol(x, 0.8, z, 1.5);
+  }
+
+  // Cerca de madeira: uma corrida de n vãos a partir de um ponto
+  function makeCerca(x, z, ang, vaos){
+    const G = GEO, w = matDec('madeira');
+    const dx = Math.cos(ang)*2.0, dz = Math.sin(ang)*2.0;
+    for(let i=0;i<=vaos;i++){
+      const px = x + dx*i, pz = z + dz*i;
+      pc('cercaPoste', G.cubo, w, px, 0, pz, ang, 0.17, 1.45, 0.17, 0, rnd(-0.04,0.04));
+      if(i < vaos){
+        for(const h of [0.55, 1.08]){
+          pc('cercaTrave', G.cubo, w, px + dx/2, h, pz + dz/2, ang, 2.0, 0.12, 0.08);
+        }
+      }
+      addSphereCol(px, 0.7, pz, 0.3);
+    }
+  }
+
+  // Carroça de mão, tombada ou de pé
+  function makeCarroca(x, z, ang){
+    const G = GEO, w = matDec('madeira'), e = matDec('madEsc');
+    const co = Math.cos(ang), si = Math.sin(ang);
+    pc('carrPiso', G.cubo, w, x, 0.78, z, ang, 2.6, 0.12, 1.5);
+    for(const s of [-1, 1]) pc('carrLado', G.cubo, w, x - si*s*0.72, 0.9, z + co*s*0.72, ang, 2.6, 0.5, 0.1);
+    pc('carrFrente', G.cubo, w, x + co*1.28, 0.9, z + si*1.28, ang, 0.1, 0.5, 1.5);
+    for(const s of [-1, 1]){
+      pc('carrRoda', G.cil, e, x - co*0.5 - si*s*0.85, 0.62, z - si*0.5 + co*s*0.85,
+         ang + Math.PI/2, 1.25, 0.14, 1.25, Math.PI/2);
+    }
+    for(const s of [-1, 1]) pc('carrVara', G.cubo, w, x + co*2.1 - si*s*0.5, 0.72, z + si*2.1 + co*s*0.5, ang, 1.8, 0.09, 0.09);
+    pc('carrCarga', G.cubo, matDec('lona'), x - co*0.3, 1.0, z - si*0.3, ang + 0.2, 1.5, 0.55, 1.1);
+    addSphereCol(x, 0.8, z, 1.5);
+  }
+
+  // Barril e caixote — entram juntos, quase sempre em pilha
+  function makeBarril(x, z){
+    const G = GEO;
+    pc('barril', G.cil, matDec('madEsc'), x, 0, z, Math.random()*6, 0.78, 1.1, 0.78);
+    for(const h of [0.22, 0.86]) pc('barrilAro', G.aro, matDec('ferro'), x, h, z, 0, 1.62, 1.62, 1.62, Math.PI/2);
+    addSphereCol(x, 0.55, z, 0.5);
+  }
+  function makeCaixote(x, z, alt){
+    const G = GEO, w = matDec('madeira');
+    const n = alt || 1;
+    for(let i=0;i<n;i++){
+      const s = rnd(0.78, 0.92), ry = Math.random()*6;
+      pc('caixote', G.cubo, w, x + rnd(-0.1,0.1), i*0.82, z + rnd(-0.1,0.1), ry, s, 0.82, s);
+    }
+    addSphereCol(x, 0.45*n, z, 0.55);
+  }
+
+  // Pilha de lenha
+  function makeLenha(x, z, ang){
+    const G = GEO, e = matDec('madEsc');
+    const co = Math.cos(ang), si = Math.sin(ang);
+    for(let f=0; f<3; f++){
+      const nf = 4 - f;
+      for(let i=0;i<nf;i++){
+        const off = (i - (nf-1)/2) * 0.34;
+        pc('lenha', G.cil, e, x - si*off, 0.17 + f*0.33, z + co*off,
+           ang + Math.PI/2, 0.3, 1.9, 0.3, Math.PI/2);
+      }
+    }
+    addSphereCol(x, 0.5, z, 1.0);
+  }
+
+  // Toco de árvore cortada
+  function makeToco(x, z){
+    const G = GEO, e = matDec('madEsc');
+    const s = rnd(0.8, 1.3);
+    pc('toco', G.cil, e, x, 0, z, Math.random()*6, 0.95*s, 0.75*s, 0.95*s);
+    pc('tocoTopo', G.cil, matDec('madeira'), x, 0.74*s, z, Math.random()*6, 0.9*s, 0.07, 0.9*s);
+    addSphereCol(x, 0.4, z, 0.6*s);
+  }
+
+  // Tronco caído, com dois cotocos de galho
+  function makeTronco(x, z, ang){
+    const G = GEO, e = matDec('madEsc');
+    const co = Math.cos(ang), si = Math.sin(ang), c = rnd(4.5, 7.5);
+    pc('tronco', G.cil, e, x, 0.42, z, ang + Math.PI/2, 0.84, c, 0.84, Math.PI/2);
+    for(const s of [-1, 1]){
+      pc('troncoGalho', G.cil, e, x + co*c*0.3*s, 0.6, z + si*c*0.3*s,
+         ang, 0.3, 1.2, 0.3, 0, 1.1*s);
+    }
+    addSphereCol(x, 0.45, z, 1.2);
+    addSphereCol(x + co*c*0.3, 0.45, z + si*c*0.3, 1.0);
+    addSphereCol(x - co*c*0.3, 0.45, z - si*c*0.3, 1.0);
+  }
+
+  // Cogumelos em tufo: nada de colisão, são pequenos
+  function makeCogumelos(x, z){
+    const G = GEO;
+    const n = 2 + ((Math.random()*4)|0);
+    for(let i=0;i<n;i++){
+      const px = x + rnd(-0.9, 0.9), pz = z + rnd(-0.9, 0.9), s = rnd(0.5, 1.1);
+      pc('cogPe',  G.cil,  matDec('pe'),       px, 0, pz, 0, 0.13*s, 0.34*s, 0.13*s);
+      pc('cogCha', G.cone, matDec('cogumelo'), px, 0.3*s, pz, 0, 0.46*s, 0.3*s, 0.46*s);
+    }
+  }
+
+  // Pilha de pedras de trilha, no gelo
+  function makeCairn(x, z){
+    const G = GEO, pd = matDec('pedra');
+    let y = 0;
+    const n = 3 + ((Math.random()*3)|0);
+    for(let i=0;i<n;i++){
+      const s = 1.0 - i*0.17;
+      pc('cairn', G.rock, pd, x + rnd(-0.1,0.1), y + 0.28*s, z + rnd(-0.1,0.1),
+         Math.random()*6, 0.7*s, 0.45*s, 0.7*s);
+      y += 0.5*s;
+    }
+    addSphereCol(x, 0.6, z, 0.7);
+  }
+
+  // Juncos do pântano
+  function makeJuncos(x, z){
+    const G = GEO, c = matDec('capa');
+    const n = 5 + ((Math.random()*7)|0);
+    for(let i=0;i<n;i++){
+      pc('junco', G.cone, c, x + rnd(-1.1,1.1), 0, z + rnd(-1.1,1.1),
+         Math.random()*6, rnd(0.08,0.15), rnd(1.1,2.2), rnd(0.08,0.15),
+         rnd(-0.14,0.14), rnd(-0.14,0.14));
+    }
+  }
+
+  // Fogueira apagada: roda de pedras e lenha queimada
+  function makeFogueiraFria(x, z){
+    const G = GEO;
+    for(let i=0;i<7;i++){
+      const a = (i/7)*Math.PI*2;
+      pc('fogPedra', G.rock, matDec('pedra'), x + Math.cos(a)*0.95, 0.06, z + Math.sin(a)*0.95,
+         Math.random()*6, 0.38, 0.3, 0.38);
+    }
+    for(let i=0;i<4;i++){
+      const a = (i/4)*Math.PI*2 + 0.4;
+      pc('fogLenha', G.cil, matDec('madEsc'), x, 0.12, z, a, 0.17, 1.5, 0.17, Math.PI/2.4);
+    }
+    addSphereCol(x, 0.3, z, 0.9);
+  }
+
   function buildValeDecor(){
     scatter('vale', 22, (x,z)=>{ if(Math.hypot(x,z)>13) makeTree(x,z,0x2c4426,0x2b2018); }, 14);
     scatter('vale', 20, (x,z)=>{ if(Math.hypot(x,z)>12) makeRock(x,z,0x2f2846); }, 12);
@@ -2271,6 +2579,30 @@
       st.position.set(px, 0.06, pz); st.rotation.y = Math.random()*3;
       scene.add(st);
     }
+
+    // ---- o quintal da casa ----
+    // Posto à mão, não sorteado: é a primeira coisa que o jogador vê, e
+    // casa espalhada a esmo não parece lugar onde alguém mora.
+    makePoco(-9.5, 5.2);
+    makeLenha(7.6, -4.2, 0.2);
+    makeCarroca(-11.5, -6.5, 0.7);
+    makeCaixote(8.4, 6.0, 2);
+    makeCaixote(9.6, 5.2, 1);
+    makeBarril(7.3, 6.6);
+    makeBarril(6.4, 7.4);
+    makeFogueiraFria(0, 12.5);
+    makeCerca(-14, 11, 0, 5);          // horta ao sul
+    makeCerca(-14, 11, -Math.PI/2, 3);
+    makeCerca(14.5, -12, Math.PI, 4);  // cercado a nordeste
+    makeToco(-16, -2);
+    makeToco(13, 2.5);
+
+    // o resto espalhado, longe da casa e do caminho de pedras
+    const longe = (x,z)=> Math.hypot(x,z) > 19 && Math.abs(x) > 7;
+    scatter('vale', 10, (x,z)=>{ if(longe(x,z)) makeToco(x,z); }, 18);
+    scatter('vale', 7,  (x,z)=>{ if(longe(x,z)) makeTronco(x,z, Math.random()*6); }, 20);
+    scatter('vale', 8,  (x,z)=>{ if(longe(x,z)) makeCogumelos(x,z); }, 16);
+    scatter('vale', 4,  (x,z)=>{ if(longe(x,z)) makeFogueiraFria(x,z); }, 24);
   }
 
   function buildForest(){
@@ -2280,6 +2612,16 @@
       makeTree(x,zz,0x1d3320,0x241a12);
     });
     scatter('floresta', 26, (x,zz)=> makeRock(x,zz,0x2b3a2c));
+    // chão de floresta: tocos, troncos caídos e cogumelos
+    const fora = (x,zz)=> Math.hypot(x-z.x, zz-z.z) > 11;
+    scatter('floresta', 22, (x,zz)=>{ if(fora(x,zz)) makeToco(x,zz); }, 10);
+    scatter('floresta', 16, (x,zz)=>{ if(fora(x,zz)) makeTronco(x,zz, Math.random()*6); }, 12);
+    scatter('floresta', 26, (x,zz)=>{ if(fora(x,zz)) makeCogumelos(x,zz); }, 9);
+    // o acampamento goblin ganha pilhagem em volta da fogueira
+    makeBarril(z.x - 5.5, z.z + 3.2);
+    makeCaixote(z.x + 5.0, z.z + 4.0, 2);
+    makeLenha(z.x + 4.6, z.z - 3.4, 1.1);
+    makeCerca(z.x - 8, z.z - 7, 0.5, 3);
 
     // Acampamento goblin: fogueira + tendas + totem
     const fire = new THREE.Mesh(new THREE.ConeGeometry(0.9,1.5,7),
@@ -2320,6 +2662,10 @@
       addSphereCol(x, 1.4, zz, 1.0);
     });
     scatter('pantano', 22, (x,zz)=> makeTree(x,zz,0x2b3a2a,0x1f2a24, rnd(0.7,1.0)));
+    // juncos e troncos apodrecendo na beira
+    scatter('pantano', 30, (x,zz)=> makeJuncos(x,zz), 24);
+    scatter('pantano', 10, (x,zz)=> makeTronco(x,zz, Math.random()*6), 26);
+    scatter('pantano', 14, (x,zz)=> makeCogumelos(x,zz), 25);
     scene.add(makeSignpost(95, 62, 'Ruínas do Pântano'));
   }
 
@@ -2419,6 +2765,7 @@
       addSphereCol(x, 1.6, zz, w*0.9);
     });
     scatter('pico', 18, (x,zz)=> makeRock(x,zz,0x51617c, rnd(0.8,2.2)));
+    scatter('pico', 14, (x,zz)=> makeCairn(x,zz), 12);
     scene.add(makeObelisk(z, 4));
   }
 
@@ -2530,6 +2877,11 @@
       anjo.position.set(C.x + sx*6, 8.7, C.z + C.r);
       scene.add(anjo);
     }
+
+    makeCerca(C.x - 22, C.z + 30, 0, 4);
+    makeCaixote(C.x + 16, C.z + 34, 2);
+    makeLenha(C.x + 14, C.z + 31, 0.4);
+    makeFogueiraFria(C.x + 11, C.z + 33);
 
     // Lápides, cruzes e criptas
     const lapide = matStd(0x8f9486, {tex:'rocha', rep:1.2, roughness:1, flatShading:true, bump:0.5});
@@ -5919,6 +6271,7 @@ function animarAldric(modelo, t, dt){
     atualizarRocha(dt);
     updateBillboards();
     updateAmbient(dt);
+    CICLO.atualizar(dt);
     updateZone();
     updateWaypointHud();
     drawRadar();
@@ -5942,7 +6295,7 @@ function animarAldric(modelo, t, dt){
       f.t += dt*9;
       const s = 0.85 + Math.sin(f.t)*0.12 + Math.random()*0.05;
       f.mesh.scale.set(s, s*1.15, s);
-      f.light.intensity = 1.3 + Math.sin(f.t*1.4)*0.4;
+      f.light.intensity = (1.3 + Math.sin(f.t*1.4)*0.4) * CICLO.brilhoFogo;
     }
     const tt = performance.now()*0.001;
     for(let i=0;i<modelosAnimados.length;i++) animarAldric(modelosAnimados[i], tt, dt);
@@ -5987,9 +6340,9 @@ function animarAldric(modelo, t, dt){
       currentZone = z;
       if(z){
         showZoneBanner(z);
-        scene.fog.color.setHex(z.fog);
+        CICLO.fogBase = z.fog;
       } else {
-        scene.fog.color.setHex(0x2a2340);
+        CICLO.fogBase = 0x2a2340;
       }
     }
   }
